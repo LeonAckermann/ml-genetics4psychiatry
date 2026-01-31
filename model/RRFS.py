@@ -5,6 +5,9 @@ from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 import random
 
+# implements the RRFS model with teacher-student architecture
+# original code at https://github.com/alimirzaei/TSFS/blob/master/methods.py
+
 # ---------------------------------------------------------
 # MODULE 1: The Teacher (Autoencoder)
 # ---------------------------------------------------------
@@ -12,11 +15,11 @@ class TeacherAutoencoder(nn.Module):
     def __init__(self, input_dim, hidden_dim=10, seed=0):
         super(TeacherAutoencoder, self).__init__()
 
-        # Encoder: Input -> Hidden (Sigmoid activation per Keras code)
-        self.encoder = nn.Linear(input_dim, hidden_dim, seed)
+        # Encoder: Input -> Hidden 
+        self.encoder = nn.Linear(input_dim, hidden_dim)
         self.enc_act = nn.Sigmoid()
         
-        # Decoder: Hidden -> Input (Linear activation implied by loss='mse' on raw data)
+        # Decoder: Hidden -> Input 
         self.regressor = nn.Linear(hidden_dim, 1)
         self.decoder = nn.Linear(hidden_dim, input_dim)
 
@@ -37,7 +40,6 @@ class TeacherAutoencoder(nn.Module):
 class StudentFeatureSelector(nn.Module):
     def __init__(self, input_dim, target_dim):
         super(StudentFeatureSelector, self).__init__()
-        # The Keras code used "10 * hidden" for the intermediate layer
         intermediate_dim = 10 * target_dim
         
         # Layer 1: The layer where we apply regularization for feature selection
@@ -67,16 +69,7 @@ class DeepFeatureSelection:
         self.student = StudentFeatureSelector(input_dim, hidden_dim).to(device)
 
     def _l21_regularization(self, layer):
-        """
-        Implements L2,1 Norm Regularization (Group Lasso).
-        Keras code: l1 * sum(sqrt(sum(square(W), axis=1)))
-        
-        In Keras (Dense), weights are (n_input, n_output). Axis=1 sums across outputs.
-        In PyTorch (Linear), weights are (n_output, n_input).
-        
-        We need to calculate the L2 norm of the weights connected to each *input* feature,
-        then sum those norms (L1 of L2).
-        """
+        """Calculates the L2,1 norm for group sparsity on the input layer."""
         # dim=0 is the output dimension, so taking norm over dim=0 collapses outputs
         # and leaves us with a vector of size [input_dim]
         group_norms = torch.norm(layer.weight, p=2, dim=0) 
