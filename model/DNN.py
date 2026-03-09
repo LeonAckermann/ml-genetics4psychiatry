@@ -36,6 +36,7 @@ class DNN(nn.Module):
         for h_dim in hidden_dims:
             layers.append(nn.Linear(prev_dim, h_dim))
             layers.append(nn.ReLU())
+            layers.append(nn.BatchNorm1d(h_dim))
 
             if dropout:
                 layers.append(nn.Dropout(dropout))

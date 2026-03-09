@@ -106,8 +106,8 @@ class DeepFeatureSelection:
             test_losses.append(test_loss)
             
             # Simple verbose output
-            if (epoch+1) % 5 == 0 or epoch == 0:
-                print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(loader):.4f}, Test Loss: {test_loss:.4f}")
+            #if (epoch+1) % 5 == 0 or epoch == 0:
+            #    print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(loader):.4f}, Test Loss: {test_loss:.4f}")
 
         return train_losses, test_losses
     
@@ -190,9 +190,9 @@ class DeepFeatureSelection:
             test_loss = self.test_student(X, epochs=epochs, batch_size=batch_size)
             test_losses.append(test_loss)
                 
-            if (epoch+1) % 10 == 0 or epoch == 0:
-                # print training and test loss
-                print(f"Epoch {epoch+1}/{epochs}, Total Loss: {total_loss/len(loader):.4f}, Test Loss: {test_loss:.4f}")
+            #if (epoch+1) % 10 == 0 or epoch == 0:
+            #    # print training and test loss
+            #    print(f"Epoch {epoch+1}/{epochs}, Total Loss: {total_loss/len(loader):.4f}, Test Loss: {test_loss:.4f}")
 
 
         return train_losses, test_losses
