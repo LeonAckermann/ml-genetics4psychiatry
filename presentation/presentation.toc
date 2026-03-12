@@ -1,0 +1,5 @@
+\beamer@sectionintoc {1}{Data}{2}{0}{1}
+\beamer@sectionintoc {2}{Goal \& Task Formulation}{7}{0}{2}
+\beamer@sectionintoc {3}{Methods}{9}{0}{3}
+\beamer@sectionintoc {4}{Results}{13}{0}{4}
+\beamer@sectionintoc {5}{Next Steps}{15}{0}{5}

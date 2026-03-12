@@ -6,9 +6,9 @@ Minimal project scaffold with data loading, model, and CLI entry point.
 
 - [data](data) — raw datasets (not committed)
 - [dataloader](dataloader) — shared loading utilities
-- [datanalysis](datanalysis) — analysis helpers
+- [analysis](analysis) — analysis helpers (plots, result aggregation)
 - [model](model) — model definitions
-- [scripts/notebooks](scripts/notebooks) — exploratory notebooks
+- [scripts](scripts) — exploratory notebooks
 - [main.py](main.py) — CLI entry point
 
 ## Environment setup
@@ -22,9 +22,36 @@ pip install -r requirements.txt
 
 ## Run an experiment
 
+Experiments are configured via YAML files in [experiments](experiments) and run through [main.py](main.py).
+
 ```bash
-python main.py --data data/your_data.csv --target your_target_column
+python main.py --config experiments/linear_regression_scz.yaml
 ```
+
+Notes:
+
+- Run from the repo root (so relative paths like `data/...` resolve correctly).
+- The first run will (by default) also generate and save deterministic train/test splits under `data/splits/{ILLNESS}_{N_SPLITS}/seed_{SEED}/`.
+
+Available example configs:
+
+```bash
+python main.py --config experiments/ridge_regression_scz.yaml
+python main.py --config experiments/lasso_regression_scz.yaml
+python main.py --config experiments/elastic_regression_scz.yaml
+python main.py --config experiments/xgboost_scz.yaml
+python main.py --config experiments/residual_dnn_scz.yaml
+```
+
+Each run writes a timestamped JSON to `results/{experiment_name}/{experiment_name}_YYYYMMDD_HHMMSS.json` containing per-seed metrics and aggregated metrics.
+
+### Data location (default)
+
+The default loader expects illness-specific GWAS tables at:
+
+- `data/tmpDATA-Leon/donnees_MRI_{ILLNESS}_only_variants_clumping_p_thr_{PVAL}all.txt`
+
+and a target column named `Z_scores_{ILLNESS}` (e.g. `Z_scores_SCZ`). See [dataloader/dataloader.py](dataloader/dataloader.py).
 
 ## Data loading
 
@@ -40,11 +67,43 @@ CSV files can be loaded via `load_csv` using [dataloader/dataloader.py](dataload
 
 ## Analysis helpers
 
-Common analysis helpers live in [datanalysis/analysis.py](datanalysis/analysis.py). Add new functions there so they can be imported from notebooks and scripts.
+### Quick dataset sanity-check (optional)
+
+```python
+from dataloader import load_illness_data
+from analysis import basic_summary, missingness_report
+
+# If you run this from the repo root:
+df = load_illness_data("SCZ", in_notebook=False)
+
+print(basic_summary(df))
+print(missingness_report(df).head(20))
+```
+
+### Evaluate results (metrics + plots)
+
+To plot R² distributions from saved result JSONs:
+
+```bash
+# One method (all runs in that folder)
+python -m analysis.resultAnalysis --results results/linear_regression_scz/
+
+# One boxplot per method (newest run per method)
+python -m analysis.resultAnalysis --combined results/
+```
+
+By default the plots are saved next to the results:
+
+- `results/<method>/r2_boxplot.png`
+- `results/combined_r2_boxplot.png`
 
 ## Notebook quickstart
 
-Open the notebook at scripts/notebooks/quickstart.ipynb.
+Start with one of:
+
+- `scripts/notebooks_old/quickstart.ipynb`
+- `scripts/data/data.ipynb`
+- `scripts/data/graph.ipynb`
 
 ## Requirements
 
