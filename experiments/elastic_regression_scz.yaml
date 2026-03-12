@@ -1,0 +1,21 @@
+# Experiment: Linear Regression on Schizophrenia (SCZ)
+
+# Data settings
+data:
+  illness: SCZ
+  target: Z_scores_SCZ
+  test_size: 0.2
+  n_splits: 10
+  save_splits: true
+
+# Model settings
+model:
+  name: elastic_regression    # Options: linear_regression, dnn, baseline
+  best_l1_ratio: 0.1       # Only used for elastic_regression, ignored otherwise
+  best_alpha: 0.06951927961775606       # Only used for elastic_regression, ignored otherwise
+
+
+# Evaluation settings
+evaluation:
+  metrics: [r2, mse]
+  binary_threshold: null      # Set to a number (e.g. 0 or 1) to also compute classification metrics
