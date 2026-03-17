@@ -9,14 +9,43 @@ from __future__ import annotations
 import json
 import argparse
 from pathlib import Path
+from datetime import datetime
 
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 
-def load_results(results_dir: str | Path) -> list[dict]:
-    """Load all JSON result files from a directory."""
+def _summary_stats(values: list[float]) -> dict:
+    """Compute summary statistics for a list of floats."""
+
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0:
+        raise ValueError("Cannot compute summary stats for empty list")
+
+    q1, median, q3 = np.quantile(arr, [0.25, 0.5, 0.75])
+    std = float(np.std(arr, ddof=1)) if arr.size > 1 else 0.0
+
+    return {
+        "n": int(arr.size),
+        "mean": float(np.mean(arr)),
+        "std": std,
+        "min": float(np.min(arr)),
+        "q1": float(q1),
+        "median": float(median),
+        "q3": float(q3),
+        "max": float(np.max(arr)),
+    }
+
+
+def _write_results_json(out_path: Path, payload: dict) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+def load_results(results_dir: str | Path) -> tuple[list[dict], list[Path]]:
+    """Load all JSON result files from a directory and return (results, files)."""
     results_dir = Path(results_dir)
     files = sorted(results_dir.glob("*.json"))
     if not files:
@@ -25,7 +54,7 @@ def load_results(results_dir: str | Path) -> list[dict]:
     for f in files:
         with open(f) as fh:
             results.append(json.load(fh))
-    return results
+    return results, files
 
 
 def boxplot_r2_scores(results_dir: str | Path, save: bool = True) -> None:
@@ -37,14 +66,15 @@ def boxplot_r2_scores(results_dir: str | Path, save: bool = True) -> None:
     If there are multiple files (e.g., repeated runs), they are shown side by side.
     """
     results_dir = Path(results_dir)
-    results = load_results(results_dir)
+    results, files = load_results(results_dir)
 
     sns.set_theme(style="whitegrid", palette="muted", font_scale=1.1)
 
-    labels = []
-    data = []
+    labels: list[str] = []
+    data: list[list[float]] = []
+    files_used: list[str] = []
 
-    for res in results:
+    for res, src_file in zip(results, files):
         experiment = res["experiment"]
         timestamp = res.get("timestamp", "")
         label = f"{experiment}\n({timestamp})" if len(results) > 1 else experiment
@@ -56,6 +86,7 @@ def boxplot_r2_scores(results_dir: str | Path, save: bool = True) -> None:
 
         labels.append(label)
         data.append(r2_scores)
+        files_used.append(Path(src_file).name)
 
     if not data:
         print("No R² data to plot.")
@@ -98,6 +129,22 @@ def boxplot_r2_scores(results_dir: str | Path, save: bool = True) -> None:
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Boxplot saved to {out_path}")
 
+        # Also write a machine-readable summary (one entry per JSON file).
+        summary_rows = []
+        for label, r2_scores, filename in zip(labels, data, files_used):
+            summary_rows.append({
+                "label": label,
+                "file": filename,
+                "r2": _summary_stats(r2_scores),
+            })
+        _write_results_json(results_dir / "results.json", {
+            "mode": "single",
+            "results_dir": str(results_dir),
+            "created": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            "runs": summary_rows,
+        })
+        print(f"Summary written to {results_dir / 'results.json'}")
+
     plt.show()
 
 
@@ -114,6 +161,7 @@ def combined_boxplot(results_root: str | Path, save: bool = True) -> None:
 
     labels: list[str] = []
     data: list[list[float]] = []
+    summary: list[dict] = []
 
     for method_dir in method_dirs:
         json_files = sorted(method_dir.glob("*.json"))
@@ -140,6 +188,14 @@ def combined_boxplot(results_root: str | Path, save: bool = True) -> None:
         labels.append(label)
         data.append(r2_scores)
 
+        summary.append({
+            "method_dir": method_dir.name,
+            "experiment": res.get("experiment", method_dir.name),
+            "file": newest_file.name,
+            "timestamp": res.get("timestamp"),
+            "r2": _summary_stats(r2_scores),
+        })
+
     if not data:
         print("No R² data to plot.")
         return
@@ -148,9 +204,11 @@ def combined_boxplot(results_root: str | Path, save: bool = True) -> None:
     order = sorted(range(len(data)), key=lambda i: float(np.median(data[i])), reverse=True)
     labels = [labels[i] for i in order]
     data   = [data[i]   for i in order]
+    summary = [summary[i] for i in order]
 
     sns.set_theme(style="whitegrid", palette="muted", font_scale=1.1)
-    fig, ax = plt.subplots(figsize=(8, 5))
+    # increase resolution
+    fig, ax = plt.subplots(figsize=(10, 5))
     ax.set_facecolor("#f0f0f0")
     fig.patch.set_facecolor("#fafafa")
 
@@ -183,8 +241,17 @@ def combined_boxplot(results_root: str | Path, save: bool = True) -> None:
 
     if save:
         out_path = results_root / "combined_r2_boxplot.png"
-        fig.savefig(out_path, dpi=150, bbox_inches="tight")
+        fig.savefig(out_path, dpi=350, bbox_inches="tight")
         print(f"\nCombined boxplot saved to {out_path}")
+
+        # Also write a machine-readable summary.
+        _write_results_json(results_root / "results.json", {
+            "mode": "combined",
+            "results_root": str(results_root),
+            "created": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            "methods": summary,
+        })
+        print(f"Summary written to {results_root / 'results.json'}")
 
     plt.show()
 

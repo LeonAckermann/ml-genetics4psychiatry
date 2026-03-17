@@ -2,6 +2,23 @@
 
 Minimal project scaffold with data loading, model, and CLI entry point.
 
+## Brief project description
+
+This project studies whether MRI--genetics association signals can predict psychiatric illness risk (currently focused on SCZ) using tabular machine learning. It includes a reproducible training pipeline, multiple baseline and non-linear models, and lightweight result analysis utilities.
+
+## Current results (SCZ, brief)
+
+Latest combined run summary (`results/results.json`, 10 seeds, newest run per method):
+
+- TabPFNv2 finetuned: mean $R^2 = 0.485$ (best)
+- TabPFNv2: mean $R^2 = 0.440$
+- Residual DNN: mean $R^2 = 0.409$
+- ElasticNet / Ridge / Lasso: mean $R^2 \approx 0.392 / 0.385 / 0.382$
+- XGBoost: mean $R^2 = 0.348$
+- Linear Regression: mean $R^2 = 0.257$
+
+Combined visualization is saved to `results/combined_r2_boxplot.png`.
+
 ## Project structure
 
 - [data](data) — raw datasets (not committed)
