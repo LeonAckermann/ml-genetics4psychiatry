@@ -6,16 +6,27 @@ Minimal project scaffold with data loading, model, and CLI entry point.
 
 This project studies whether MRI--genetics association signals can predict psychiatric illness risk (currently focused on SCZ) using tabular machine learning. It includes a reproducible training pipeline, multiple baseline and non-linear models, and lightweight result analysis utilities.
 
+## Data (brief)
+
+- Input tables are GWAS-derived, illness-specific datasets in `data/tmpDATA-Leon/...`.
+- Each row represents a SNP; feature columns are MRI-related GWAS z-scores.
+- The target is the illness GWAS z-score (e.g. `Z_scores_SCZ`).
+- Current main benchmark is SCZ with clumped SNPs (roughly a few thousand variants) and about ~1k MRI features.
+
 ## Current results (SCZ, brief)
 
 Latest combined run summary (`results/results.json`, 10 seeds, newest run per method):
 
-- TabPFNv2 finetuned: mean $R^2 = 0.485$ (best)
-- TabPFNv2: mean $R^2 = 0.440$
-- Residual DNN: mean $R^2 = 0.409$
-- ElasticNet / Ridge / Lasso: mean $R^2 \approx 0.392 / 0.385 / 0.382$
-- XGBoost: mean $R^2 = 0.348$
-- Linear Regression: mean $R^2 = 0.257$
+| Model | Mean R² | Std R² | Seeds |
+|---|---:|---:|---:|
+| TabPFNv2 finetuned | 0.485 | 0.026 | 10 |
+| TabPFNv2 | 0.440 | 0.027 | 10 |
+| Residual DNN | 0.409 | 0.035 | 10 |
+| ElasticNet | 0.392 | 0.031 | 10 |
+| Ridge | 0.385 | 0.028 | 10 |
+| Lasso | 0.382 | 0.030 | 10 |
+| XGBoost | 0.348 | 0.029 | 10 |
+| Linear Regression | 0.257 | 0.046 | 10 |
 
 Combined visualization is saved to `results/combined_r2_boxplot.png`.
 
