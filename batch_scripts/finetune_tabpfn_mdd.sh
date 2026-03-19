@@ -15,7 +15,7 @@ export TABPFN_ALLOW_CPU_LARGE_DATASET=1
 #print working directory
 echo "Current working directory: $(pwd)"
 
-python3.12 ../scripts/pyscripts/tabpfn_mdd.py 
+python3.12 ../scripts/pyscripts/finetune_tabpfn_mdd.py 
 
 #print done
 echo "TabPFN script completed successfully."

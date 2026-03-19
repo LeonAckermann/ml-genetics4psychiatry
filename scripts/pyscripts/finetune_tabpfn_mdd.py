@@ -13,6 +13,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 
 from tabpfn import TabPFNRegressor
+from tabpfn.finetuning import FinetunedTabPFNRegressor
 from tabpfn.constants import ModelVersion
 
 from dataloader import load_txt, preprocess, GWASDataset
@@ -35,13 +36,20 @@ for seed in range(42,52):
     regressor = TabPFNRegressor()  # Uses TabPFN-2.5 weights, trained on synthetic data only.
     #regressor.to(device)
 
+    finetuned_reg = FinetunedTabPFNRegressor(
+        device="cuda",
+        epochs=30,
+        learning_rate=1e-5,
+        random_state=seed,
+    )
+
 
     # To use TabPFN v2:
     # regressor = TabPFNRegressor.create_default_for_version(ModelVersion.V2)
-    regressor.fit(X_train, y_train)
+    finetuned_reg.fit(X_train, y_train)
 
     # Predict on the test set
-    predictions = regressor.predict(X_test)
+    predictions = finetuned_reg.predict(X_test)
 
     # Evaluate the model
     mse = mean_squared_error(y_test, predictions)
