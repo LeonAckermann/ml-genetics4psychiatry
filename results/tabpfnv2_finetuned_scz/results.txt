@@ -1,0 +1,54 @@
+Current working directory: /pasteur/appa/homes/lackerma/projects/ml-genetics4psychiatry/batch_scripts
+Current working directory: /pasteur/appa/homes/lackerma/projects/ml-genetics4psychiatry/batch_scripts
+Using device: cuda
+Results for random seed 42:
+Mean Squared Error (MSE): 12.54910563689825
+R² Score: 0.43384403840344543
+
+
+Results for random seed 43:
+Mean Squared Error (MSE): 11.373281414337848
+R² Score: 0.48710731978364497
+
+
+Results for random seed 44:
+Mean Squared Error (MSE): 11.470219998182788
+R² Score: 0.49086001658160106
+
+
+Results for random seed 45:
+Mean Squared Error (MSE): 11.552416183756389
+R² Score: 0.47230855414195183
+
+
+Results for random seed 46:
+Mean Squared Error (MSE): 11.093720851798018
+R² Score: 0.5015143574795493
+
+
+Results for random seed 47:
+Mean Squared Error (MSE): 11.595584479819992
+R² Score: 0.4780823558154359
+
+
+Results for random seed 48:
+Mean Squared Error (MSE): 11.348500691056467
+R² Score: 0.4938654575721254
+
+
+Results for random seed 49:
+Mean Squared Error (MSE): 10.506887526552122
+R² Score: 0.5271767140369004
+
+
+Results for random seed 50:
+Mean Squared Error (MSE): 10.912057978981059
+R² Score: 0.5026516924815558
+
+
+Results for random seed 51:
+Mean Squared Error (MSE): 11.804674534354595
+R² Score: 0.4586101588012449
+
+
+TabPFN script completed successfully.

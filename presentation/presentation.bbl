@@ -427,6 +427,127 @@
       \endverb
       \keyw{Computer science,Software,Computational science,Statistics,Scientific data}
     \endentry
+    \entry{hollmannTabPFNTransformerThat2023}{misc}{}
+      \name{author}{4}{}{%
+        {{hash=d06a205e19de4032b81274f1d7b52162}{%
+           family={Hollmann},
+           familyi={H\bibinitperiod},
+           given={Noah},
+           giveni={N\bibinitperiod}}}%
+        {{hash=2a41bcef42ee0b53547f6a4a5853997c}{%
+           family={Müller},
+           familyi={M\bibinitperiod},
+           given={Samuel},
+           giveni={S\bibinitperiod}}}%
+        {{hash=554f094deca53cbf5f3f77a28bbb493e}{%
+           family={Eggensperger},
+           familyi={E\bibinitperiod},
+           given={Katharina},
+           giveni={K\bibinitperiod}}}%
+        {{hash=528d4af87fd2ecf5fb8a22db913ce088}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Frank},
+           giveni={F\bibinitperiod}}}%
+      }
+      \list{language}{1}{%
+        {en}%
+      }
+      \list{publisher}{1}{%
+        {arXiv}%
+      }
+      \strng{namehash}{703beaefb2ea47e0a0ca0d40b4675f46}
+      \strng{fullhash}{a7be9c8da5727879810e44567b685eaa}
+      \strng{bibnamehash}{a7be9c8da5727879810e44567b685eaa}
+      \strng{authorbibnamehash}{a7be9c8da5727879810e44567b685eaa}
+      \strng{authornamehash}{703beaefb2ea47e0a0ca0d40b4675f46}
+      \strng{authorfullhash}{a7be9c8da5727879810e44567b685eaa}
+      \field{sortinit}{9}
+      \field{sortinithash}{0a5ebc79d83c96b6579069544c73c7d4}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{shorttitle}
+      \field{abstract}{We present TabPFN, a trained Transformer that can do supervised classification for small tabular datasets in less than a second, needs no hyperparameter tuning and is competitive with state-of-the-art classification methods. TabPFN performs in-context learning (ICL), it learns to make predictions using sequences of labeled examples (x, f(x)) given in the input, without requiring further parameter updates. TabPFN is fully entailed in the weights of our network, which accepts training and test samples as a set-valued input and yields predictions for the entire test set in a single forward pass. TabPFN is a Prior-Data Fitted Network (PFN) and is trained offline once, to approximate Bayesian inference on synthetic datasets drawn from our prior. This prior incorporates ideas from causal reasoning: It entails a large space of structural causal models with a preference for simple structures. On the 18 datasets in the OpenML-CC18 suite that contain up to 1 000 training data points, up to 100 purely numerical features without missing values, and up to 10 classes, we show that our method clearly outperforms boosted trees and performs on par with complex state-of-the-art AutoML systems with up to 230× speedup. This increases to a 5 700× speedup when using a GPU. We also validate these results on an additional 67 small numerical datasets from OpenML. We provide all our code, the trained TabPFN, an interactive browser demo and a Colab notebook at https://github.com/automl/TabPFN.}
+      \field{month}{9}
+      \field{note}{arXiv:2207.01848 [cs]}
+      \field{shorttitle}{{TabPFN}}
+      \field{title}{{TabPFN}: {A} {Transformer} {That} {Solves} {Small} {Tabular} {Classification} {Problems} in a {Second}}
+      \field{urlday}{9}
+      \field{urlmonth}{3}
+      \field{urlyear}{2026}
+      \field{year}{2023}
+      \field{urldateera}{ce}
+      \verb{doi}
+      \verb 10.48550/arXiv.2207.01848
+      \endverb
+      \verb{file}
+      \verb PDF:/Users/leonackermann/Zotero/storage/WE2Z7NHM/Hollmann et al. - 2023 - TabPFN A Transformer That Solves Small Tabular Classification Problems in a Second.pdf:application/pdf
+      \endverb
+      \verb{urlraw}
+      \verb http://arxiv.org/abs/2207.01848
+      \endverb
+      \verb{url}
+      \verb http://arxiv.org/abs/2207.01848
+      \endverb
+      \keyw{Computer Science - Machine Learning,Statistics - Machine Learning}
+    \endentry
+    \entry{yeCloserLookTabPFN2025}{misc}{}
+      \name{author}{3}{}{%
+        {{hash=75b36a6355bd9d7168129f4b329a8f03}{%
+           family={Ye},
+           familyi={Y\bibinitperiod},
+           given={Han-Jia},
+           giveni={H\bibinithyphendelim J\bibinitperiod}}}%
+        {{hash=8d101db7e6975d4b4dcaab0f35901d9c}{%
+           family={Liu},
+           familyi={L\bibinitperiod},
+           given={Si-Yang},
+           giveni={S\bibinithyphendelim Y\bibinitperiod}}}%
+        {{hash=0105b3b51bae724c38d12eba42fe56c6}{%
+           family={Chao},
+           familyi={C\bibinitperiod},
+           given={Wei-Lun},
+           giveni={W\bibinithyphendelim L\bibinitperiod}}}%
+      }
+      \list{language}{1}{%
+        {en}%
+      }
+      \list{publisher}{1}{%
+        {arXiv}%
+      }
+      \strng{namehash}{77bdb7d0403891f8b2a56fcf27e6f51d}
+      \strng{fullhash}{77bdb7d0403891f8b2a56fcf27e6f51d}
+      \strng{bibnamehash}{77bdb7d0403891f8b2a56fcf27e6f51d}
+      \strng{authorbibnamehash}{77bdb7d0403891f8b2a56fcf27e6f51d}
+      \strng{authornamehash}{77bdb7d0403891f8b2a56fcf27e6f51d}
+      \strng{authorfullhash}{77bdb7d0403891f8b2a56fcf27e6f51d}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{shorttitle}
+      \field{abstract}{Tabular datasets are inherently heterogeneous, presenting significant challenges for developing pre-trained foundation models. The recently introduced transformerbased Tabular Prior-data Fitted Network v2 (TabPFN v2) achieves unprecedented in-context learning performance across diverse downstream datasets, marking a pivotal advancement in tabular foundation models. In this paper, we take a closer look at TabPFN v2 to examine how it effectively handles heterogeneity and achieves high predictive accuracy, and to explore how its limitations in high-dimensional, many-category, and large-scale tasks can be mitigated. We find that TabPFN v2 can infer attribute relationships even when provided with randomized attribute token inputs, eliminating the need to explicitly learn dataset-specific attribute embeddings to address heterogeneity. We further show that TabPFN v2 can be transformed into a feature extractor, revealing its ability to construct a highly separable feature space for accurate predictions. Lastly, we demonstrate that TabPFN v2’s limitations can be addressed through a test-time divide-and-conquer strategy, enabling scalable inference without requiring re-training. By uncovering the mechanisms behind TabPFN v2’s success and introducing strategies to extend its applicability, this study offers key insights into the design of future tabular foundation models.}
+      \field{month}{6}
+      \field{note}{arXiv:2502.17361 [cs]}
+      \field{shorttitle}{A {Closer} {Look} at {TabPFN} v2}
+      \field{title}{A {Closer} {Look} at {TabPFN} v2: {Understanding} {Its} {Strengths} and {Extending} {Its} {Capabilities}}
+      \field{urlday}{9}
+      \field{urlmonth}{3}
+      \field{urlyear}{2026}
+      \field{year}{2025}
+      \field{urldateera}{ce}
+      \verb{doi}
+      \verb 10.48550/arXiv.2502.17361
+      \endverb
+      \verb{file}
+      \verb PDF:/Users/leonackermann/Zotero/storage/QQG5V48X/Ye et al. - 2025 - A Closer Look at TabPFN v2 Understanding Its Strengths and Extending Its Capabilities.pdf:application/pdf
+      \endverb
+      \verb{urlraw}
+      \verb http://arxiv.org/abs/2502.17361
+      \endverb
+      \verb{url}
+      \verb http://arxiv.org/abs/2502.17361
+      \endverb
+      \keyw{Computer Science - Machine Learning}
+    \endentry
   \enddatalist
 \endrefsection
 \endinput

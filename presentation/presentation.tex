@@ -22,7 +22,7 @@
 Two matrices share matched participant rows ($N_1 \ldots N_n$):
 
 \medskip
-\textbf{Structural MRI} ($n\times m$) \hfill \textbf{Genotype} ($n\times l$)
+\hspace{9em}\textbf{Structural MRI} ($n\times m$) \hspace{6em} \textbf{Genotype} ($n\times l$)
 
 \[
 \mathbf{X}_{\text{MRI}} =
@@ -55,7 +55,6 @@ For every SNP $i$ and MRI phenotype $j$, a GWAS collapses the $n$ participants i
 \text{GWAS}\!\bigl(\mathbf{X}_{G_{*,i}},\;\mathbf{X}_{\text{MRI}_{*,j}}\bigr)
 \;\longrightarrow\; z_{i,j}
 \]
-
 Under a linear model for quantitative traits:
 \[
 y = G_{\text{MRI}_{*,j}}\,\beta^{G}_{i,j} + X\beta^{X} + e
@@ -100,15 +99,59 @@ z_{l,1} & z_{l,2} & \cdots & z_{l,m} & z_{\text{ill},l}
 \end{itemize}
 \end{frame}
 
+
 % ------ 1.4 Clumping & LD ------
 \begin{frame}{P-Value Clumping \& Linkage Disequilibrium}
-\begin{itemize}
-    \item Nearby nucleotides are correlated (LD) because recombination is less likely at short distances.
+\begin{block}{Linkage Disequilibrium (LD)}
+\begin{itemize}\setlength\itemsep{3pt}
+    \item Nearby nucleotides are correlated because recombination is less likely at short distances.
     \item $\mathrm{E}[\hat\beta_i] = \beta_i + \sum_{j\neq i} r_{ij}\beta_j$ (LD bias within a block).
-    \item LD blocks are estimated in \textsc{PLINK}.
-    \item \textbf{Clumping}: pick the lead SNP per LD block; remove all SNPs with $r^{2}$ above a threshold with the lead SNP.
-    \item P-value threshold (e.g.\ $p < 10^{-3}$) controls how many SNPs survive $\Rightarrow$ dataset size vs.\ signal quality trade-off.
-    \item Same SNP set is selected across illnesses $\Rightarrow$ cross-illness comparison is valid within European ancestry.
+    \item LD blocks are estimated in \textsc{PLINK} 
+    \item correlation of chosen SNP with other SNPsof LD block is removed.
+\end{itemize}
+\end{block}
+
+\begin{block}{Clumping}
+\begin{itemize}\setlength\itemsep{3pt}
+    \item Pick the lead SNP per LD block across all illnesses
+    \item P-value threshold (e.g.\ $p < 10^{-3}$) controls how many SNPs survive 
+    \newline $\Rightarrow$ dataset size vs.\ signal quality trade-off.
+    \item Same SNP set selected across illnesses \newline $\Rightarrow$ cross-illness comparison is valid.
+\end{itemize}
+\end{block}
+\end{frame}
+
+% ------ 1.3b Label distribution ------
+\begin{frame}{Label Distribution}
+\footnotesize
+\centering
+\includegraphics[width=\linewidth]{figures/data_distribution.png}
+
+\end{frame}
+
+% ------ 1.5 Dataset overview ------
+\begin{frame}{Dataset Overview -- Illnesses}
+\footnotesize
+\begin{table}
+\centering
+\begin{tabular}{@{}llcc@{}}
+\toprule
+\textbf{Illness} & \textbf{Full name} & \textbf{SNPs after clumping} & \textbf{$p$-value threshold} \\
+\midrule
+MDD  & Major Depressive Disorder   & 4{,}045 & $<10^{-3}$ \\
+BIP  & Bipolar Disorder            & 4{,}720 & $<10^{-3}$ \\
+SCZ  & Schizophrenia               & 3{,}533 & $<10^{-4}$ \\
+ADHD & Attention Deficit \& Hyperactivity Disorder & 3{,}213 & $<10^{-3}$ \\
+ASD  & Autism Spectrum Disorder    & 2{,}890 & $<10^{-3}$ \\
+OCD  & Obsessive--Compulsive Disorder & 2{,}027 & $<10^{-3}$ \\
+\bottomrule
+\end{tabular}
+\caption{Number of SNPs retained per illness after p-value clumping.}
+\end{table}
+
+\begin{itemize}
+    \item SCZ uses a stricter threshold ($p < 10^{-4}$) because its GWAS has the largest sample size, yielding many significant hits.
+    \item All current experiments target SCZ; other illnesses are planned as extensions.
 \end{itemize}
 \end{frame}
 
@@ -208,6 +251,7 @@ XGBoost           & \texttt{n\_estimators}    & 200 \\
                   & \texttt{colsample\_bytree} & 0.8 \\
 \bottomrule
 \end{tabular}
+\caption{Key hyperparameters for baselines, selected via cross-validated grid search.}
 \end{table}
 
 All models: 80/20 train/test split, 10 seeds (42--51).\\
@@ -216,72 +260,190 @@ Regularisation hyperparameters selected via cross-validated grid search.
 
 % ------ ResidualDNN ------
 \begin{frame}{ResidualDNN Architecture}
+    \footnotesize
 \begin{columns}[T]
 \column{0.55\textwidth}
-\begin{itemize}\setlength\itemsep{3pt}
-    \item Hidden dims: $[128, 128, 64, 64, 32, 32]$
-    \item Paired into 3 \textbf{residual blocks} with skip connections
-    \item Each block: Linear $\to$ ReLU $\to$ BatchNorm $\to$ Dropout(0.4) $\times 2$ Residual connection
-    \item Optimiser: Adam, lr $= 10^{-5}$
-    \item Gradient clipping at 1.0 to prevent exploding gradients
-    \item Epochs: 300, batch size: 32
-    \item Learning rate scheduler: Cosine Annealing with warm restarts (T\_0=15, T\_mult=2)
-\end{itemize}
 
-\column{0.4\textwidth}
+\begin{block}{Architecture}
+\begin{itemize}\setlength\itemsep{2pt}
+    \item Hidden dims: $[128, 128, 64, 64, 32, 32]$
+    \item 3 \textbf{residual blocks} with additive skip connections
+\end{itemize}
+\end{block}
+
+
+\smallskip
+
+\begin{block}{Training}
+\begin{itemize}\setlength\itemsep{2pt}
+    \item Optimiser: Adam, lr\,$= 10^{-5}$, weight decay $= 10^{-5}$, gradient clipping $\leq 1.0$
+    \item 300 epochs, batch size 32, Early Stopping (patience 20)
+    \item LR schedule: Cosine Annealing with warm restarts ($T_0{=}15$, $T_\text{mult}{=}2$)
+\end{itemize}
+\end{block}
+
+
+
+\column{0.45\textwidth}
 \centering
-\begin{tikzpicture}[scale=0.65, every node/.style={scale=0.65},
-    block/.style={draw, rounded corners, minimum width=2.2cm, minimum height=0.6cm, fill=blue!10}]
+% --- DNN overview (no skip arrows) ---
+\begin{tikzpicture}[scale=0.62, every node/.style={scale=0.62},
+    block/.style={draw, rounded corners, minimum width=2.2cm, minimum height=0.5cm, fill=blue!10}]
     \node[block] (in) at (0,0) {Input ($d$)};
-    \node[block] (r1) at (0,-1.3) {ResBlock (128)};
-    \node[block] (r2) at (0,-2.6) {ResBlock (64)};
-    \node[block] (r3) at (0,-3.9) {ResBlock (32)};
-    \node[block] (out) at (0,-5.2) {Linear (1)};
+    \node[block] (r1) at (0,-1.1) {ResBlock (128)};
+    \node[block] (r2) at (0,-2.2) {ResBlock (64)};
+    \node[block] (r3) at (0,-3.3) {ResBlock (32)};
+    \node[block] (out) at (0,-4.4) {Linear (1)};
     \draw[-latex] (in) -- (r1);
     \draw[-latex] (r1) -- (r2);
     \draw[-latex] (r2) -- (r3);
     \draw[-latex] (r3) -- (out);
-    % skip arrows
-    \draw[-latex, dashed, red!60] (in.east) to[out=0,in=0] (r1.east);
-    \draw[-latex, dashed, red!60] (r1.east) to[out=0,in=0] (r2.east);
-    \draw[-latex, dashed, red!60] (r2.east) to[out=0,in=0] (r3.east);
+\end{tikzpicture}
+
+\vspace{0.6em}
+{\footnotesize\textit{ResBlock detail:}}
+
+\vspace{0.3em}
+% --- ResBlock detail (horizontal) ---
+\begin{tikzpicture}[scale=0.56, every node/.style={scale=0.56},
+    lyr/.style={draw, rounded corners, minimum width=1.65cm, minimum height=0.55cm, fill=orange!12},
+    op/.style={draw, circle, inner sep=2pt, fill=gray!20, font=\bfseries}]
+    \node (xin)              at (0,0)   {$x$};
+    \node[lyr] (b1)          at (1.9,0)  {\shortstack{Lin, ReLU\\BN, Drop}};
+    \node[lyr] (b2)          at (4.2,0)  {\shortstack{Lin, ReLU\\BN, Drop}};
+    \node[op]  (add)         at (5.9,0)  {$+$};
+    \node (xout)             at (7.0,0)  {$x'$};
+    \draw[-latex] (xin) -- (b1);
+    \draw[-latex] (b1)  -- (b2);
+    \draw[-latex] (b2)  -- (add);
+    \draw[-latex] (add) -- (xout);
+    \draw[-latex, dashed] (xin) to[out=90,in=90, looseness=0.6] (add);
 \end{tikzpicture}
 \end{columns}
 
 \medskip
 \footnotesize
-\textbf{Outlook}: The \emph{Regularisation Cocktail} \cite{kadraWelltunedSimpleNets} adds weight decay, learning-rate warmup, mixup, cutout, and label smoothing on top of a plain MLP---further avenues for improvement.
+\textbf{Outlook}: The \emph{Regularisation Cocktail} \cite{kadraWelltunedSimpleNets} adds more implicit, structural, data augmentation, and ensemble methods on top of a plain MLP---further avenues for improvement.
 \end{frame}
+
+\begin{frame}{TabPFN -- Bayesian View and PFN Objective}
+\scriptsize
+\textbf{Posterior predictive distribution (PPD):}
+for a test sample $x_{\text{test}}$, the model predicts
+$p(\cdot \mid x_{\text{test}}, D_{\text{train}})$ conditioned on
+$D_{\text{train}} := \{(x_1,y_1),\ldots,(x_n,y_n)\}$.
+
+\medskip
+The Bayesian PPD integrates over hypotheses $\phi \in \Phi$:
+\[
+p(y \mid x, D) \propto \int_{\Phi} p(y \mid x, \phi)\,p(D \mid \phi)\,p(\phi)\,d\phi,
+\qquad \phi \in \Phi
+\]
+
+TabPFN approximates this posterior predictive with a transformer $q_\theta$ trained via
+\[
+\mathcal{L}_{\text{PFN}}=
+\mathbb{E}_{(\{(x_{\text{test}},y_{\text{test}})\}\cup D_{\text{train}})\sim p(D)}
+\left[-\log q_\theta\!\big(y_{\text{test}}\mid x_{\text{test}},D_{\text{train}}\big)\right].
+\]
+
+Data is sampled from the prior predictive process:
+\[
+p(D)=\mathbb{E}_{\phi\sim p(\phi)}\!\big[p(D\mid\phi)\big],
+\qquad
+\phi\sim p(\phi),\; D\sim p(D\mid\phi).
+\]
+
+At inference, we input $\langle D_{\text{train}},x_{\text{test}}\rangle$ and obtain
+\[
+q_\theta\big(y\mid x_{\text{test}},D_{\text{train}}\big)
+\]
+as a single forward-pass approximation of the PPD. Further information can be found in \cite{hollmannTabPFNTransformerThat2023}.
+
+\end{frame}
+
+\begin{frame}{TabPFNv2 - Training and Prior}
+\footnotesize
+\centering
+\begin{figure}
+\includegraphics[width=\linewidth,height=0.3\textheight,keepaspectratio]{./figures/tabpfnv2_training_overview.png}
+\caption{Training Overview \cite{hollmannTabPFNTransformerThat2023}}
+\end{figure}
+\begin{figure}
+    
+\includegraphics[width=\linewidth,height=0.3\textheight,keepaspectratio]{./figures/tabpfnv2_prior.png}
+\caption{Prior Distribution \cite{hollmannTabPFNTransformerThat2023}}
+\end{figure}
+
+\end{frame}
+
+\begin{frame}{TabPFNv2 - Architecture}
+\footnotesize
+\begin{figure}
+\centering
+\includegraphics[width=\linewidth,height=0.58\textheight,keepaspectratio]{./figures/tabpfnv2_architecture.png}
+\caption{Architecture \cite{yeCloserLookTabPFN2025}}
+\end{figure}
+
+\begin{itemize}
+    \item Enables \textbf{in-context learning}: train samples are provided as context at inference.
+    \item Approximates Bayesian inference by directly modeling the posterior predictive distribution (PPD).
+\end{itemize}
+
+
+\end{frame}
+
 
 % ============================================================
 \section{Results}
 % ============================================================
 
+\begin{frame}
+\centering
+\begin{figure}
+    
+
+\includegraphics[width=\linewidth,height=\textheight,keepaspectratio]{../results/combined_r2_boxplot.png}
+\caption{Boxplot of $R^2$ across models, aggregated over 10 seeds (42--51), 80/20 split.}
+\end{figure}
+\end{frame}
+
 \begin{frame}{Results -- Schizophrenia (SCZ)}
 \footnotesize
-\begin{table}
-\centering
-\begin{tabular}{@{}lcc@{}}
-\toprule
-\textbf{Model} & \textbf{Mean $R^{2}$} & \textbf{Mean MSE} \\
-\midrule
-Residual DNN      & \textbf{0.409} & \textbf{13.10} \\
-ElasticNet        & 0.393          & 13.47 \\
-Ridge             & 0.385          & 13.64 \\
-Lasso             & 0.382          & 13.70 \\
-XGBoost           & 0.349          & 14.45 \\
-Linear Regression & 0.258          & 16.47 \\
-\bottomrule
-\end{tabular}
-\caption{Aggregated over 10 seeds (42--51), 80/20 split.}
-\end{table}
+ \begin{table}
+ \centering
+ \begin{tabular}{@{}lcc@{}}
+ \toprule
+ \textbf{Model} & \textbf{Mean $R^{2}$} & \textbf{Mean MSE} \\
+ \midrule
+ TabPFNv2 finetune & \textbf{0.48}±0.025  & \textbf{11.42} \\
+ TabPFNv2          & 0.44±0.026  & 12.49\\
+ Residual DNN      & 0.409±0.035          & 13.10 \\
+ ElasticNet        & 0.393±0.031          & 13.47 \\
+ Ridge             & 0.385±0.027          & 13.64 \\
+ Lasso             & 0.382±0.030          & 13.70 \\
+ XGBoost           & 0.349±0.029          & 14.45 \\
+ Linear Regression & 0.258±0.046          & 16.47 \\
+
+
+ \bottomrule
+ \end{tabular}
+ \caption{Aggregated over 10 seeds (42--51), 80/20 split.}
+ \end{table}
+
+
+
+\vspace{0.5em}
 
 \begin{itemize}
     \item Regularised linear models outperform plain OLS substantially ($+0.12$ $R^{2}$).
     \item XGBoost under-performs linear baselines---likely due to limited sample size ($\sim$3.5k).
-    \item ResidualDNN achieves the best $R^{2}$ so far, suggesting non-linear signal is present.
+    \item Neural networks are slighly better than linear models, suggesting some non-linear signal is present?
+    \item TabPFNv2 achieves the best $R^{2}$ so far, suggesting non-linear signal is present.
 \end{itemize}
 \end{frame}
+
+
 
 % ============================================================
 \section{Next Steps}
@@ -289,17 +451,20 @@ Linear Regression & 0.258          & 16.47 \\
 
 \begin{frame}{Next Steps}
 \begin{enumerate}\setlength\itemsep{6pt}
-    \item \textbf{Regularisation Cocktail MLP}\\
-          Systematically search weight decay, mixup, cutout, learning-rate schedules, and label smoothing \cite{kadraWelltunedSimpleNets}.
+    \item \textbf{Data distribution}\\
+        Improve label distribution, represent whole range of z-scores
 
-    \item \textbf{Pre-trained TabTransformer (TabPFN-style)}\\
-          Pre-train a transformer on MRI--GWAS data across multiple illnesses, then fine-tune on target illness. Inspired by \cite{hollmannAccuratePredictionsSmall2025}.
+    \item \textbf{Regularisation Cocktail MLP}\\
+          Systematically search implicit, structural, data augmentation, and ensemble methods \cite{kadraWelltunedSimpleNets}. Will take a while to train, no guarantee of improvement.
+
+    \item \textbf{TabPFNv2 optimization}\\
+          Hyperoptimization, fine-tuning and continued pre-training for TabPFNv2. Inspired by \cite{hollmannAccuratePredictionsSmall2025}. Promising avenue to boost performance.
+
+    \item \textbf{TabPFNv2 Explainability}\\
+          Use SHAP values to identify which MRI features drive predictions; compare with known biology. Create causal graphs of feature importance.
 
     \item \textbf{Graph Neural Network}\\
           Treat brain regions as nodes with MRI features; edge definition TBD (spatial adjacency, functional connectivity, or learned).
-
-    \item \textbf{Classification formulation}\\
-          Threshold z-score into binary risk labels; evaluate with AUC-ROC alongside $R^{2}$.
 
 
 \end{enumerate}
