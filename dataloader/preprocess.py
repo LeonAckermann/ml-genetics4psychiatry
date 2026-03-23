@@ -41,6 +41,7 @@ def load_txt(
     sep: Optional[str] = None,
     index_col: Optional[int] = None,
     header: Optional[int] = 0,
+    chunk_size: Optional[int] = None,
 ) -> pd.DataFrame:
     """Load a TXT file with a header row and data in rows.
 
@@ -50,22 +51,30 @@ def load_txt(
     path = Path(data_path).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"Data file not found: {path}")
-
-    if sep is None:
-        return pd.read_csv(
+    
+    if chunk_size is not None:
+        chunks = []
+        for chunk in pd.read_csv(
             path,
-            sep=r"\s+",
+            sep=sep if sep is not None else r"\s+",
             index_col=index_col,
             header=header,
-            engine="python",
+            engine="python" if sep is None else "c",
+            chunksize=chunk_size,
+        ):
+            chunks.append(chunk)
+        return pd.concat(chunks, ignore_index=True)
+    
+    else:
+        return pd.read_csv(
+            path,
+            sep=sep if sep is not None else r"\s+",
+            index_col=index_col,
+            header=header,
+            engine="python" if sep is None else "c",
         )
 
-    return pd.read_csv(
-        path,
-        sep=sep,
-        index_col=index_col,
-        header=header,
-    )
+
 
 def preprocess(df, target, testsize, seed=42):
     df = df.drop(columns=["ID"])  # Replace 'ID' with your actual ID column name
