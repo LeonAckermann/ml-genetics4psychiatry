@@ -1,20 +1,83 @@
-from dataloader.preprocess import load_txt, preprocess
 from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import sys
 
-def aligne_illness_mri(illness, verbose=True, chunk_size=10000):
+
+from dataloader.preprocess import load_txt
+
+def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None):
     
     if verbose:
         print(f"Loading GWAS data for MRI")
-    df_mri = load_txt(Path("../../data/pipeline/input/gwas_mri/donnees_MRI_et_diseases.txt"), chunk_size=chunk_size)
+    df_mri = load_txt(Path(f"./data/pipeline/input/gwas_mri/all_z_scores.txt"), chunk_size=chunk_size, total_chunks=total_chunks)
     if verbose:
         print(f"Loading GWAS data for illness {illness}")
-    df_illness = load_txt(Path(f"../../data/pipeline/input/gwas_illness/z_PGC_{illness}.txt"), chunk_size=chunk_size)
+    df_illness = load_txt(Path(f"./data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
     df_illness.rename(columns={"rsID": "ID"}, inplace=True)
     if verbose:
         print(f"Aligning data for illness {illness} with MRI data")
     aligned = df_illness.merge(df_mri, on="ID", how="inner")
+    # remove all columns except ID, and P
+    # get all columns except ID and P
+    cols_to_keep = [col for col in aligned.columns if col not in ["P"]]
+    mri = aligned[cols_to_keep]
+    aligned = aligned[["ID", "P"]]
     # save it as txt file
-    output_path = Path(f"../../data/pipeline/intermediate/aligned_{illness}.txt").expanduser().resolve()
+    output_path_illness= Path(f"./data/pipeline/intermediate/aligned_{illness}.txt").expanduser().resolve()
+    aligned.to_csv(output_path_illness, sep="\t", index=False)
+    if verbose:
+        print(f"Saved aligned data for illness {illness} at {output_path_illness}")
+    output_path_mri = Path(f"./data/pipeline/intermediate/mri_{illness}.txt").expanduser().resolve()
+    mri.to_csv(output_path_mri, sep="\t", index=False)
+
+
+
+def call_plink2(cfg: dict[str, str]) -> None:
+    cmd: list[str] = ["plink2"]
+    for key, value in cfg.items():
+        cmd.append(key)
+        if value is not None and str(value) != "":
+            cmd.append(str(value))
+
+    # print each element of the command on a new line for debugging
+    print(f"Calling plink2 with command: {shlex.join(cmd)}")
+
+    subprocess.run("ln -sf $HOME/tools/plink2/plink2 $HOME/tools/bin/plink2", shell=True)
+    # run this command with subprocess echo 'export PATH="$HOME/tools/bin:$PATH"' >> ~/.bashrc
+    subprocess.run("echo 'export PATH=\"$HOME/tools/bin:$PATH\"' >> ~/.bashrc", shell=True)
+    subprocess.run("source ~/.bashrc", shell=True)
+
+    plink2_path = shutil.which("plink2")
+    if not plink2_path:
+        raise FileNotFoundError(
+            "plink2 is not available. Install plink2 and ensure it's on your PATH."
+        )
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Error calling plink2: {result.stderr}")
+        sys.exit(1)
+
+    print(f"plink2 output: {result.stdout}")
+
+
+def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None):
+    if verbose:
+        print(f"Loading clumped data for illness {illness}")
+    df_clumped = load_txt(Path(f"./data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size)
+    df_clumped.rename(columns={"ID": "ID"}, inplace=True)
+    if verbose:
+        print(f"Loading aligned MRI data for illness {illness}")
+    df_mri = load_txt(Path(f"./data/pipeline/intermediate/mri_{illness}.txt"), chunk_size=chunk_size, total_chunks=total_chunks)
+    if verbose:
+        print(f"Aligning clumped data for illness {illness} with MRI data")
+    aligned = df_clumped.merge(df_mri, on="ID", how="inner")
+    # remove columns chrom	pos	A0	A1	N
+    #CHROM	POS	P	TOTAL	NONSIG	S0.05	S0.01	S0.001	S0.0001	SP2	chrom	pos	A0	A1	N
+    aligned = aligned.drop(columns=["#CHROM","POS","TOTAL","NONSIG","S0.05","S0.01","S0.001","S0.0001","SP2","chrom","pos","A0","A1","N"])
+    output_path = Path(f"./data/pipeline/final/aligned_clumped_{illness}.txt").expanduser().resolve()
     aligned.to_csv(output_path, sep="\t", index=False)
     if verbose:
-        print(f"Saved aligned data for illness {illness} at {output_path}")
+        print(f"Saved aligned clumped data for illness {illness} at {output_path}")

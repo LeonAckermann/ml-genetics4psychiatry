@@ -1,5 +1,8 @@
 # Experiment: Linear Regression on Schizophrenia (SCZ)
 
+pipeline:
+
+
 # Data settings
 data:
   illness: SCZ

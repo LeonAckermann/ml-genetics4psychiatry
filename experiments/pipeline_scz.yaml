@@ -5,17 +5,15 @@ plink2:
   p_clump: 1
   r2: 0.05
   clump_kb: 500
-  ref: "./data/pipeline/input/clumping_ref_panel_and_cmd/EUR"
+  ref: "./data/pipeline/input/ref_panel/All_ensemble_1000G_hg38_EUR_all_chr"
   aligned: "./data/pipeline/intermediate/aligned_SCZ.txt"
   output: "./data/pipeline/output/clumped_SCZ"
-  total_chunks: 2
-  chunk_size: 10000
+
+experiment:
+  run: false
 
 sampling:
-  p_clump: 
-  method: clumped
-  clumped_file: "./data/pipeline/output/clumped_SCZ.txt"
-  n_snps: null  # Set to a number (e.g. 1000) to limit the number of SNPs used
+  run: false
 
 # Data settings
 data:

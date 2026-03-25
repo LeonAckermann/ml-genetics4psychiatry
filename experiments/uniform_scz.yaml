@@ -1,21 +1,20 @@
 # Experiment: Linear Regression on Schizophrenia (SCZ)
 
 plink2:
-  prepare: true
+  prepare: false
   p_clump: 1
   r2: 0.05
   clump_kb: 500
-  ref: "./data/pipeline/input/clumping_ref_panel_and_cmd/EUR"
+  ref: "./data/pipeline/input/ref_panel/All_ensemble_1000G_hg38_EUR_all_chr"
   aligned: "./data/pipeline/intermediate/aligned_SCZ.txt"
   output: "./data/pipeline/output/clumped_SCZ"
-  total_chunks: 2
-  chunk_size: 10000
+
+
 
 sampling:
-  p_clump: 
-  method: clumped
-  clumped_file: "./data/pipeline/output/clumped_SCZ.txt"
-  n_snps: null  # Set to a number (e.g. 1000) to limit the number of SNPs used
+  run: true
+  p_clump: 0.01
+  distribution: uniform
 
 # Data settings
 data:
@@ -24,6 +23,9 @@ data:
   test_size: 0.2
   n_splits: 10
   save_splits: true
+
+experiment:
+  run: false
 
 # Model settings
 model:
