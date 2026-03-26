@@ -140,6 +140,8 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
     if verbose:
         print(f"Aligning data for illness {illness} with MRI data")
     aligned_illness = df_illness.merge(df_mri, on="ID", how="inner")
+    cols_to_keep = [col for col in aligned_illness.columns if col not in ["P"]]
+    aligned_illness = aligned_illness[cols_to_keep]
     aligned = df_clumped.merge(aligned_illness, on="ID", how="inner")
     if verbose:
         print(f"Number of rows in aligned clumped data: {aligned.shape[0]}")
@@ -147,7 +149,7 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
     
     # remove columns chrom	pos	A0	A1	N
     #CHROM	POS	P	TOTAL	NONSIG	S0.05	S0.01	S0.001	S0.0001	SP2	chrom	pos	A0	A1	N
-    aligned = aligned.drop(columns=["#CHROM","POS","TOTAL","NONSIG","S0.05","S0.01","S0.001","S0.0001","SP2","chrom","pos","A0","A1","N", "P_x", "P_y"])
+    aligned = aligned.drop(columns=["#CHROM","POS","TOTAL","NONSIG","S0.05","S0.01","S0.001","S0.0001","SP2","chrom","pos","A0","A1","N"])
     output_path = Path(f"../data/pipeline/final/aligned_clumped_{illness}.txt").expanduser().resolve()
     aligned.to_csv(output_path, sep="\t", index=False)
     if verbose:
