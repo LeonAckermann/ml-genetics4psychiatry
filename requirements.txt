@@ -5,10 +5,9 @@ matplotlib
 torch
 torchvision
 performer-pytorch
-<<<<<<< HEAD
 xgboost
 pyyaml
 piecewise-regression
-=======
 tabpfn
->>>>>>> origin/maestro
+polars
+pyarrow

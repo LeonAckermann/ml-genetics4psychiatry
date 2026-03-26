@@ -5,12 +5,13 @@ plink2:
   p_clump: 1
   r2: 0.05
   clump_kb: 500
-  #total_chunks: None
+  total_chunks: 5
   chunk_size: 10000
   mri: "./data/pipeline/input/gwas_mri/all_z_scores.txt"
   ref: "./data/pipeline/input/ref_panel/All_ensemble_1000G_hg38_EUR_all_chr"
   aligned: "./data/pipeline/intermediate/aligned_SCZ.txt"
   output: "./data/pipeline/output/clumped_SCZ"
+  polars: true
 
 experiment:
   run: false

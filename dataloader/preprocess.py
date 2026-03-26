@@ -10,6 +10,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import torch
 import tqdm
+import polars as pl
 
 @dataclass
 class DataConfig:
@@ -34,6 +35,50 @@ def load_csv(config: DataConfig) -> pd.DataFrame:
         header=config.header,
     )
 
+def load_txt_polars(
+    data_path: Path | str,
+    *,
+    sep: Optional[str] = None,
+    chunk_size: Optional[int] = 100000, 
+    max_chunks: Optional[int] = None,
+    total_chunks: Optional[int] = None,
+    verbose: bool = True,
+) -> pl.DataFrame:
+    """Load a TXT/CSV file using Polars.
+    """
+    path = Path(data_path).expanduser().resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"Data file not found: {path}")
+    
+    if verbose:
+        print(f"Starting to load {path} with Polars...")
+    
+    # Backwards-compat
+    if max_chunks is None and total_chunks is not None:
+        max_chunks = total_chunks
+
+    # Polars caveat: it does not support regex separators (like r"\s+") natively in read_csv.
+    # If your data is standard CSV or TSV, set the exact character.
+    separator = sep if sep is not None else "\t" 
+
+    # FAST PATH: No limits requested. Let Polars use full nativeif 
+    # if max_chunks is None and chunk_size is None:
+    if verbose:
+        print(f"Loading {path.name} (Native Polars Speed)...")
+
+    # BATCHED PATH: Use batched reading for progress bars and max limits
+    df_polars = pl.read_csv(
+        path,
+        separator=separator,
+        batch_size=chunk_size if chunk_size else 100000,
+        n_rows=max_chunks * chunk_size if max_chunks and chunk_size else None
+    )
+
+    if verbose:
+        print(f"Finished loading {path.name} with Polars. Total rows: {df_polars.shape[0]}")
+    
+    return df_polars.to_pandas()  # Convert to pandas DataFrame for downstream compatibility
+
 
 def load_txt(
     data_path: Path,
@@ -44,6 +89,7 @@ def load_txt(
     chunk_size: Optional[int] = None,
     max_chunks: Optional[int] = None,
     total_chunks: Optional[int] = None,
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """Load a TXT file with a header row and data in rows.
 
@@ -53,6 +99,9 @@ def load_txt(
     ``max_chunks`` (or the backwards-compatible alias ``total_chunks``) to
     stop after reading only the first N chunks.
     """
+
+    if verbose:
+        print(f"Starting to load {data_path} with pandas...")
 
     path = Path(data_path).expanduser().resolve()
     if not path.exists():

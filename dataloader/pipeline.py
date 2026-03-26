@@ -5,15 +5,18 @@ import subprocess
 import sys
 
 
-from dataloader.preprocess import load_txt
+from dataloader.preprocess import load_txt, load_txt_polars
 
-def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None, mri_path=None):
+def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None, mri_path=None, polars=False):
     
     if verbose:
         print(f"Loading GWAS data for MRI")
     if mri_path is None:
         mri_path = Path(f"./data/pipeline/input/gwas_mri/all_z_scores.txt")
-    df_mri = load_txt(Path(mri_path), chunk_size=chunk_size, total_chunks=total_chunks)
+    if polars:
+        df_mri = load_txt_polars(Path(mri_path), chunk_size=chunk_size, total_chunks=total_chunks)
+    else:
+        df_mri = load_txt(Path(mri_path), chunk_size=chunk_size, total_chunks=total_chunks)
     # get number of rows
     n_rows_mri = df_mri.shape[0]
     # drop rows with missing values
@@ -24,7 +27,10 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
         print(f"Number of rows in MRI rows dropped: {n_rows_mri - n_rows_mri_after_drop}")
     if verbose:
         print(f"Loading GWAS data for illness {illness}")
-    df_illness = load_txt(Path(f"./data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
+    if polars:
+        df_illness = load_txt_polars(Path(f"./data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
+    else:
+        df_illness = load_txt(Path(f"./data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
     df_illness.rename(columns={"rsID": "ID"}, inplace=True)
     n_rows_illness = df_illness.shape[0]
     # drop rows with missing values    df_illness.dropna(inplace=True)
@@ -88,10 +94,13 @@ def call_plink2(cfg: dict[str, str]) -> None:
     print(f"plink2 output: {result.stdout}")
 
 
-def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None):
+def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None, polars=False):
     if verbose:
         print(f"Loading clumped data for illness {illness}")
-    df_clumped = load_txt(Path(f"./data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size)
+    if polars:
+        df_clumped = load_txt_polars(Path(f"./data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size, total_chunks=total_chunks)
+    else:
+        df_clumped = load_txt(Path(f"./data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size)
     df_clumped.rename(columns={"ID": "ID"}, inplace=True)
     n_rows_clumped = df_clumped.shape[0]
      # drop rows with missing values
@@ -102,12 +111,18 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
         print(f"Number of rows in clumped data after dropping missing values: {n_rows_clumped_after_drop}")
     if verbose:
         print(f"Loading aligned MRI data for illness {illness}")
-    df_mri = load_txt(Path(f"./data/pipeline/intermediate/mri_{illness}.txt"), chunk_size=chunk_size, total_chunks=total_chunks)
+    
+    if polars:
+        df_mri = load_txt_polars(Path(f"./data/pipeline/intermediate/mri_{illness}.txt"), chunk_size=chunk_size, total_chunks=total_chunks)
+    else:
+        df_mri = load_txt(Path(f"./data/pipeline/intermediate/mri_{illness}.txt"), chunk_size=chunk_size, total_chunks=total_chunks)
     n_rows_mri = df_mri.shape[0]
     
     if verbose:
         print(f"Aligning clumped data for illness {illness} with MRI data")
     aligned = df_clumped.merge(df_mri, on="ID", how="inner")
+    if verbose:
+        print(f"Number of rows in aligned clumped data: {aligned.shape[0]}")
     # remove columns chrom	pos	A0	A1	N
     #CHROM	POS	P	TOTAL	NONSIG	S0.05	S0.01	S0.001	S0.0001	SP2	chrom	pos	A0	A1	N
     aligned = aligned.drop(columns=["#CHROM","POS","TOTAL","NONSIG","S0.05","S0.01","S0.001","S0.0001","SP2","chrom","pos","A0","A1","N"])

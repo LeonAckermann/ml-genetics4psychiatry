@@ -305,7 +305,7 @@ def main() -> None:
         mri_path = plink_cfg.get("mri", None)
         print("\nRunning data processing pipeline...")
         
-        first_alignment = aligne_illness_mri(illness, verbose=True, chunk_size=chunk_size, total_chunks=total_chunks, mri_path=mri_path)
+        first_alignment = aligne_illness_mri(illness, verbose=True, chunk_size=chunk_size, total_chunks=total_chunks, mri_path=mri_path, polars=plink_cfg.get("polars", False))
         subprocess.run("ln -sf $HOME/tools/plink2/plink2 $HOME/tools/bin/plink2", shell=True)
         
         # run this command with subprocess echo 'export PATH="$HOME/tools/bin:$PATH"' >> ~/.bashrc
@@ -321,7 +321,7 @@ def main() -> None:
             "--out": plink_cfg["output"],
         }
         call_plink2(plink2)
-        second_alignment = aligne_clumped_illness_mri(illness, verbose=True)
+        second_alignment = aligne_clumped_illness_mri(illness, verbose=True, polars=plink_cfg.get("polars", False), chunk_size=chunk_size, total_chunks=total_chunks)
         output["illness_mri_alignment"] = first_alignment
         output["plink2"] = plink2
         output["clumped_illness_mri_alignment"] = second_alignment
