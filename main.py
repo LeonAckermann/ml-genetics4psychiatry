@@ -285,7 +285,7 @@ def main() -> None:
     n_splits = data_cfg.get("n_splits", 5)
     test_size = data_cfg.get("test_size", 0.2)
     save_splits = data_cfg.get("save_splits", True)
-    total_chunks = plink_cfg.get("total_chunks", 2)
+    total_chunks = plink_cfg.get("total_chunks", None)
     chunk_size = plink_cfg.get("chunk_size", 10000)
     sampling_cfg = cfg["sampling"]
 
@@ -301,9 +301,11 @@ def main() -> None:
 
     # Run data processing pipeline
     if plink_cfg.get("prepare", False):
+
+        mri_path = plink_cfg.get("mri", None)
         print("\nRunning data processing pipeline...")
         
-        aligne_illness_mri(illness, verbose=True, chunk_size=chunk_size, total_chunks=total_chunks)
+        first_alignment = aligne_illness_mri(illness, verbose=True, chunk_size=chunk_size, total_chunks=total_chunks, mri_path=mri_path)
         subprocess.run("ln -sf $HOME/tools/plink2/plink2 $HOME/tools/bin/plink2", shell=True)
         
         # run this command with subprocess echo 'export PATH="$HOME/tools/bin:$PATH"' >> ~/.bashrc
@@ -319,9 +321,10 @@ def main() -> None:
             "--out": plink_cfg["output"],
         }
         call_plink2(plink2)
-        aligne_clumped_illness_mri(illness, verbose=True)
-
+        second_alignment = aligne_clumped_illness_mri(illness, verbose=True)
+        output["illness_mri_alignment"] = first_alignment
         output["plink2"] = plink2
+        output["clumped_illness_mri_alignment"] = second_alignment
 
     else:
         # check if aligned data exists, if not run the alignment step

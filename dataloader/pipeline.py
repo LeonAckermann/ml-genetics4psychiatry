@@ -7,15 +7,31 @@ import sys
 
 from dataloader.preprocess import load_txt
 
-def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None):
+def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None, mri_path=None):
     
     if verbose:
         print(f"Loading GWAS data for MRI")
-    df_mri = load_txt(Path(f"./data/pipeline/input/gwas_mri/all_z_scores.txt"), chunk_size=chunk_size, total_chunks=total_chunks)
+    if mri_path is None:
+        mri_path = Path(f"./data/pipeline/input/gwas_mri/all_z_scores.txt")
+    df_mri = load_txt(Path(mri_path), chunk_size=chunk_size, total_chunks=total_chunks)
+    # get number of rows
+    n_rows_mri = df_mri.shape[0]
+    # drop rows with missing values
+    df_mri.dropna(inplace=True)
+    n_rows_mri_after_drop = df_mri.shape[0]
+    if verbose:
+        print(f"Number of rows in MRI data: {n_rows_mri}")
+        print(f"Number of rows in MRI rows dropped: {n_rows_mri - n_rows_mri_after_drop}")
     if verbose:
         print(f"Loading GWAS data for illness {illness}")
     df_illness = load_txt(Path(f"./data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
     df_illness.rename(columns={"rsID": "ID"}, inplace=True)
+    n_rows_illness = df_illness.shape[0]
+    # drop rows with missing values    df_illness.dropna(inplace=True)
+    n_rows_illness_after_drop = df_illness.shape[0]
+    if verbose:
+        print(f"Number of rows in illness data: {n_rows_illness}")
+        print(f"Number of rows in illness data rows dropped: {n_rows_illness - n_rows_illness_after_drop}")
     if verbose:
         print(f"Aligning data for illness {illness} with MRI data")
     aligned = df_illness.merge(df_mri, on="ID", how="inner")
@@ -24,6 +40,9 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
     cols_to_keep = [col for col in aligned.columns if col not in ["P"]]
     mri = aligned[cols_to_keep]
     aligned = aligned[["ID", "P"]]
+    n_rows_aligned = aligned.shape[0]
+    if verbose:
+        print(f"Number of rows in aligned data: {n_rows_aligned}")
     # save it as txt file
     output_path_illness= Path(f"./data/pipeline/intermediate/aligned_{illness}.txt").expanduser().resolve()
     aligned.to_csv(output_path_illness, sep="\t", index=False)
@@ -31,6 +50,12 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
         print(f"Saved aligned data for illness {illness} at {output_path_illness}")
     output_path_mri = Path(f"./data/pipeline/intermediate/mri_{illness}.txt").expanduser().resolve()
     mri.to_csv(output_path_mri, sep="\t", index=False)
+    output = {"n_rows_mri": n_rows_mri, 
+              "n_rows_mri_dropped": n_rows_mri - n_rows_mri_after_drop, 
+              "n_rows_illness": n_rows_illness, 
+              "n_rows_illness_dropped": n_rows_illness - n_rows_illness_after_drop, 
+              "n_rows_aligned": n_rows_aligned}
+    return output
 
 
 
@@ -68,9 +93,18 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
         print(f"Loading clumped data for illness {illness}")
     df_clumped = load_txt(Path(f"./data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size)
     df_clumped.rename(columns={"ID": "ID"}, inplace=True)
+    n_rows_clumped = df_clumped.shape[0]
+     # drop rows with missing values
+    df_clumped.dropna(inplace=True)
+    n_rows_clumped_after_drop = df_clumped.shape[0]
+    if verbose:
+        print(f"Number of rows in clumped data: {n_rows_clumped}")
+        print(f"Number of rows in clumped data after dropping missing values: {n_rows_clumped_after_drop}")
     if verbose:
         print(f"Loading aligned MRI data for illness {illness}")
     df_mri = load_txt(Path(f"./data/pipeline/intermediate/mri_{illness}.txt"), chunk_size=chunk_size, total_chunks=total_chunks)
+    n_rows_mri = df_mri.shape[0]
+    
     if verbose:
         print(f"Aligning clumped data for illness {illness} with MRI data")
     aligned = df_clumped.merge(df_mri, on="ID", how="inner")
@@ -81,3 +115,8 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
     aligned.to_csv(output_path, sep="\t", index=False)
     if verbose:
         print(f"Saved aligned clumped data for illness {illness} at {output_path}")
+    output = {"n_rows_clumped": n_rows_clumped, 
+              "n_rows_clumped_dropped": n_rows_clumped - n_rows_clumped_after_drop, 
+              "n_rows_mri": n_rows_mri,
+              "n_rows_aligned": aligned.shape[0]}
+    return output
