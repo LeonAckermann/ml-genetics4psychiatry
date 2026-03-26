@@ -291,7 +291,7 @@ def main() -> None:
 
      # Save results to JSON
     experiment_name = config_path.stem
-    results_dir = Path("results") / experiment_name
+    results_dir = Path("../results") / experiment_name
     results_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -306,11 +306,11 @@ def main() -> None:
         print("\nRunning data processing pipeline...")
         
         first_alignment = aligne_illness_mri(illness, verbose=True, chunk_size=chunk_size, total_chunks=total_chunks, mri_path=mri_path, polars=plink_cfg.get("polars", False))
-        subprocess.run("ln -sf $HOME/tools/plink2/plink2 $HOME/tools/bin/plink2", shell=True)
+        #subprocess.run("ln -sf $HOME/tools/plink2/plink2 $HOME/tools/bin/plink2", shell=True)
         
         # run this command with subprocess echo 'export PATH="$HOME/tools/bin:$PATH"' >> ~/.bashrc
-        subprocess.run("echo 'export PATH=\"$HOME/tools/bin:$PATH\"' >> ~/.bashrc", shell=True)
-        subprocess.run("source ~/.bashrc", shell=True)
+        #subprocess.run("echo 'export PATH=\"$HOME/tools/bin:$PATH\"' >> ~/.bashrc", shell=True)
+        #subprocess.run("source ~/.bashrc", shell=True)
         plink2 = {
             "--bfile": plink_cfg["ref"],
             "--clump": plink_cfg["aligned"],
@@ -321,7 +321,7 @@ def main() -> None:
             "--out": plink_cfg["output"],
         }
         call_plink2(plink2)
-        second_alignment = aligne_clumped_illness_mri(illness, verbose=True, polars=plink_cfg.get("polars", False), chunk_size=chunk_size, total_chunks=total_chunks)
+        second_alignment = aligne_clumped_illness_mri(illness, verbose=True, polars=plink_cfg.get("polars", False), mri_path=mri_path, chunk_size=chunk_size, total_chunks=total_chunks)
         output["illness_mri_alignment"] = first_alignment
         output["plink2"] = plink2
         output["clumped_illness_mri_alignment"] = second_alignment

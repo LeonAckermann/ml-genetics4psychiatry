@@ -5,7 +5,7 @@ plink2:
   p_clump: 1
   r2: 0.05
   clump_kb: 500
-  #total_chunks: 5
+  total_chunks: 5
   chunk_size: 100000
   mri: "../../../WKD_ANTOINE/__HETEROGEN_MULTITRAIT/data/processed/all_data_gwas/all_z_scores.txt"
   ref: "../data/pipeline/input/ref_panel/All_ensemble_1000G_hg38_EUR_all_chr"
@@ -21,7 +21,7 @@ sampling:
 
 # Data settings
 data:
-  illness: SCZ
+  illness: ADHD
   target: Z_scores_SCZ
   test_size: 0.2
   n_splits: 10
