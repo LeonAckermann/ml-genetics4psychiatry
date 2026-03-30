@@ -26,15 +26,13 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
     for file in allres_files:
         phenotype = file.parent.name
 
-        df: pl.DataFrame = load_txt_polars(
-            file,
-            chunk_size=chunk_size,
-            total_chunks=total_chunks,
-            return_polars=True,
+        # Use lazy scan so only the 4 needed columns are read from disk
+        df: pl.DataFrame = (
+            pl.scan_csv(str(file), separator="\t", null_values=[".", "NA", "N/A", "NaN", "nan", "NULL", "null", ""])
+            .select(["ID", "A1", "PROVISIONAL_REF?", "T_STAT"])
+            .rename({"T_STAT": phenotype})
+            .collect()
         )
-
-        # Keep only key columns and T_STAT, rename T_STAT to the phenotype name
-        df = df.select(["ID", "A1", "PROVISIONAL_REF?", "T_STAT"]).rename({"T_STAT": phenotype})
 
         if merged is None:
             merged = df
