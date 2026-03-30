@@ -25,8 +25,6 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
     NULL_VALS = [".", "NA", "N/A", "NaN", "nan", "NULL", "null", ""]
 
     # --- Pass 1: find the intersection of (ID, A1, OMITTED) keys ---
-    # A1 = effect allele, OMITTED = non-effect allele — together they uniquely
-    # identify a biallelic variant (same rsID can have multiple ALT alleles)
     print("Pass 1: finding common SNPs across all files...")
     common_keys: set | None = None
     for file in allres_files:
@@ -80,7 +78,6 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
             .collect()
         )
 
-        # Identify duplicate rows before aggregation
         is_dup = raw.select(pl.struct("ID", "A1", "OMITTED").is_duplicated()).to_series()
         dups = raw.filter(is_dup).with_columns(pl.lit(phenotype).alias("phenotype"))
         if len(dups) > 0:
@@ -108,9 +105,8 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
     del duplicates_log
     gc.collect()
 
-    # --- Assemble final DataFrame and rename columns ---
-    # A1 (effect allele) → A1, OMITTED (non-effect) → A0, matching illness file convention
-    merged = common_df.rename({"OMITTED": "A0"})
+    # A1 (allRES) → A0, OMITTED (allRES) → A1
+    merged = common_df.rename({"A1": "A0", "OMITTED": "A1"})
     for i, name in enumerate(phenotype_names):
         merged = merged.with_columns(pl.Series(name=name, values=t_stat_matrix[:, i]))
 
