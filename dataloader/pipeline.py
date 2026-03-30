@@ -1,3 +1,4 @@
+import numpy as np
 from pathlib import Path
 import gc
 import shlex
@@ -15,44 +16,112 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
     path = Path(path).expanduser().resolve()
     output_path = Path(output_path).expanduser().resolve()
 
-    # Collect all allRES.txt files recursively
     allres_files = sorted(path.rglob("allRES.txt"))
     if not allres_files:
         raise FileNotFoundError(f"No allRES.txt files found under {path}")
 
     print(f"Found {len(allres_files)} allRES.txt files")
 
-    merged: pl.DataFrame | None = None
-    for file in allres_files:
-        phenotype = file.parent.name
+    NULL_VALS = [".", "NA", "N/A", "NaN", "nan", "NULL", "null", ""]
 
-        # Use lazy scan so only the 4 needed columns are read from disk
-        df: pl.DataFrame = (
-            pl.scan_csv(str(file), separator="\t", null_values=[".", "NA", "N/A", "NaN", "nan", "NULL", "null", ""])
-            .select(["ID", "A1", "PROVISIONAL_REF?", "T_STAT"])
-            .rename({"T_STAT": phenotype})
+    # --- Pass 1: find the intersection of (ID, A1, OMITTED) keys ---
+    # A1 = effect allele, OMITTED = non-effect allele — together they uniquely
+    # identify a biallelic variant (same rsID can have multiple ALT alleles)
+    print("Pass 1: finding common SNPs across all files...")
+    common_keys: set | None = None
+    for file in allres_files:
+        df = (
+            pl.scan_csv(str(file), separator="\t", null_values=NULL_VALS)
+            .select(["ID", "A1", "OMITTED"])
+            .collect()
+            .unique(subset=["ID", "A1", "OMITTED"])
+        )
+        keys = set(zip(df["ID"].to_list(), df["A1"].to_list(), df["OMITTED"].to_list()))
+        del df
+        gc.collect()
+        if common_keys is None:
+            common_keys = keys
+        else:
+            common_keys &= keys
+
+    n_common = len(common_keys)
+    print(f"Common SNPs: {n_common}")
+
+    # Build a sorted reference frame for stable row alignment
+    common_ids      = [k[0] for k in common_keys]
+    common_a1       = [k[1] for k in common_keys]
+    common_omitted  = [k[2] for k in common_keys]
+    del common_keys
+    gc.collect()
+
+    common_df = pl.DataFrame({
+        "ID":      common_ids,
+        "A1":      common_a1,
+        "OMITTED": common_omitted,
+    }).sort("ID")
+    del common_ids, common_a1, common_omitted
+    gc.collect()
+
+    # --- Pass 2: pre-allocate matrix and fill one column per file ---
+    print("Pass 2: extracting T_STAT columns...")
+    n_files = len(allres_files)
+    t_stat_matrix = np.empty((n_common, n_files), dtype=np.float64)
+    phenotype_names = []
+
+    duplicates_log: list[pl.DataFrame] = []
+
+    for i, file in enumerate(allres_files):
+        phenotype = file.parent.name
+        phenotype_names.append(phenotype)
+
+        raw = (
+            pl.scan_csv(str(file), separator="\t", null_values=NULL_VALS)
+            .select(["ID", "A1", "OMITTED", "T_STAT"])
             .collect()
         )
 
-        if merged is None:
-            merged = df
-        else:
-            old_merged = merged
-            merged = merged.join(df, on=["ID", "A1", "PROVISIONAL_REF?"], how="inner")
-            del old_merged
+        # Identify duplicate rows before aggregation
+        is_dup = raw.select(pl.struct("ID", "A1", "OMITTED").is_duplicated()).to_series()
+        dups = raw.filter(is_dup).with_columns(pl.lit(phenotype).alias("phenotype"))
+        if len(dups) > 0:
+            duplicates_log.append(dups)
 
+        df = (
+            raw.group_by(["ID", "A1", "OMITTED"])
+            .agg(pl.col("T_STAT").sort_by(pl.col("T_STAT").abs()).last())
+            .join(common_df, on=["ID", "A1", "OMITTED"], how="inner")
+            .sort("ID")
+        )
+        del raw
+        t_stat_matrix[:, i] = df["T_STAT"].to_numpy()
         del df
         gc.collect()
-        #print(f"  Merged {phenotype}: {merged.shape[0]} rows remaining")
 
-    # rename A1 -> A0 and PROVISIONAL_REF? -> A1
-    merged = merged.rename({"A1": "A0", "PROVISIONAL_REF?": "A1"})
+        if (i + 1) % 100 == 0 or i == n_files - 1:
+            print(f"  Processed {i + 1}/{n_files} files")
+
+    # Save duplicate SNPs log
+    if duplicates_log:
+        dup_path = output_path.parent / "duplicate_snps.tsv"
+        pl.concat(duplicates_log).write_csv(str(dup_path), separator="\t")
+        print(f"Saved {sum(len(d) for d in duplicates_log)} duplicate rows to {dup_path}")
+    del duplicates_log
+    gc.collect()
+
+    # --- Assemble final DataFrame and rename columns ---
+    # A1 (effect allele) → A1, OMITTED (non-effect) → A0, matching illness file convention
+    merged = common_df.rename({"OMITTED": "A0"})
+    for i, name in enumerate(phenotype_names):
+        merged = merged.with_columns(pl.Series(name=name, values=t_stat_matrix[:, i]))
+
+    del t_stat_matrix, common_df
+    gc.collect()
 
     n_rows_merged = merged.shape[0]
     n_unique_ids = merged.select(pl.col("ID").n_unique()).item()
 
     stats = {
-        "n_files": len(allres_files),
+        "n_files": n_files,
         "n_rows_merged": n_rows_merged,
         "n_unique_ids": n_unique_ids,
     }
