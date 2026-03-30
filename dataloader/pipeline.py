@@ -1,8 +1,12 @@
 from pathlib import Path
+import gc
 import shlex
 import shutil
 import subprocess
 import sys
+
+import pandas as pd
+import polars as pl
 
 
 from dataloader.preprocess import load_txt, load_txt_polars
@@ -18,45 +22,48 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
 
     print(f"Found {len(allres_files)} allRES.txt files")
 
-    merged = None
+    merged: pl.DataFrame | None = None
     for file in allres_files:
-        # Use the immediate parent folder name as a unique suffix for columns
         phenotype = file.parent.name
 
-        if polars:
-            df = load_txt_polars(file, chunk_size=chunk_size, total_chunks=total_chunks)
-        else:
-            df = load_txt(file, chunk_size=chunk_size, total_chunks=total_chunks)
+        df: pl.DataFrame = load_txt_polars(
+            file,
+            chunk_size=chunk_size,
+            total_chunks=total_chunks,
+            return_polars=True,
+        )
 
         # Keep only key columns and T_STAT, rename T_STAT to the phenotype name
-        df = df[["ID", "A1", "PROVISIONAL_REF?", "T_STAT"]]
-        df.rename(columns={"T_STAT": phenotype}, inplace=True)
+        df = df.select(["ID", "A1", "PROVISIONAL_REF?", "T_STAT"]).rename({"T_STAT": phenotype})
 
         if merged is None:
             merged = df
         else:
-            merged = merged.merge(df, on=["ID", "A1", "PROVISIONAL_REF?"], how="inner")
+            old_merged = merged
+            merged = merged.join(df, on=["ID", "A1", "PROVISIONAL_REF?"], how="inner")
+            del old_merged
 
-        print(f"  Merged {phenotype}: {merged.shape[0]} rows remaining")
+        del df
+        gc.collect()
+        #print(f"  Merged {phenotype}: {merged.shape[0]} rows remaining")
 
-    # rename column A1 to A0 and PROVISIONAL_REF? to A1
-    merged.rename(columns={"A1": "A0", "PROVISIONAL_REF?": "A1"}, inplace=True)
+    # rename A1 -> A0 and PROVISIONAL_REF? -> A1
+    merged = merged.rename({"A1": "A0", "PROVISIONAL_REF?": "A1"})
 
-    # count number of rows in merged
     n_rows_merged = merged.shape[0]
-    # count number of unique IDs in merged
-    n_unique_ids = merged["ID"].nunique()
+    n_unique_ids = merged.select(pl.col("ID").n_unique()).item()
 
-    # output some statistics about the merged data in dictionary
     stats = {
         "n_files": len(allres_files),
         "n_rows_merged": n_rows_merged,
-        "n_unique_ids": n_unique_ids
+        "n_unique_ids": n_unique_ids,
     }
 
     print(f"Final merged shape: {merged.shape}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    merged.to_csv(output_path, sep="\t", index=False)
+    merged.write_csv(str(output_path), separator="\t")
+    del merged
+    gc.collect()
     print(f"Saved merged data to {output_path}")
     return stats
 
@@ -95,7 +102,36 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
         print(f"Number of rows in illness data rows dropped: {n_rows_illness - n_rows_illness_after_drop}")
     if verbose:
         print(f"Aligning data for illness {illness} with MRI data")
-    aligned = df_illness.merge(df_mri, on="ID", how="inner")
+
+    # Step 1: direct match on [ID, A0, A1]
+    direct = df_illness.merge(df_mri, on=["ID", "A0", "A1"], how="inner")
+    n_rows_direct = direct.shape[0]
+
+    # Step 2: flip alleles for unmatched rows, invert Z-score (exclude palindromic SNPs)
+    direct_ids = set(direct["ID"])
+    illness_remaining = df_illness[~df_illness["ID"].isin(direct_ids)].copy()
+
+    palindromic = illness_remaining.apply(
+        lambda r: frozenset([r["A0"], r["A1"]]) in (frozenset(["A", "T"]), frozenset(["C", "G"])),
+        axis=1,
+    )
+    n_palindromic = palindromic.sum()
+    illness_remaining = illness_remaining[~palindromic].copy()
+    illness_remaining[["A0", "A1"]] = illness_remaining[["A1", "A0"]].values
+    illness_remaining["Z"] = -illness_remaining["Z"]
+
+    flipped = illness_remaining.merge(df_mri, on=["ID", "A0", "A1"], how="inner")
+    n_rows_flipped = flipped.shape[0]
+
+    # Step 3: concatenate
+    aligned = pd.concat([direct, flipped], ignore_index=True)
+
+    #if verbose:
+    #    print(f"  Direct matches:           {n_rows_direct}")
+    #    print(f"  Flipped allele matches:   {n_rows_flipped}")
+    #    print(f"  Palindromic SNPs skipped: {n_palindromic}")
+    #    print(f"  Total aligned:            {aligned.shape[0]}")
+
     # remove all columns except ID, and P
     # get all columns except ID and P
     cols_to_keep = [col for col in aligned.columns if col not in ["P"]]
@@ -115,6 +151,9 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
               "n_rows_mri_dropped": n_rows_mri - n_rows_mri_after_drop, 
               "n_rows_illness": n_rows_illness, 
               "n_rows_illness_dropped": n_rows_illness - n_rows_illness_after_drop, 
+              "n_rows_direct_match": n_rows_direct,
+              "n_rows_flipped_match": n_rows_flipped,
+              "n_palindromic_skipped": n_palindromic,
               "n_rows_aligned": n_rows_aligned}
     return output
 

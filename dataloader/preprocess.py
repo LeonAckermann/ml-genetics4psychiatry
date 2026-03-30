@@ -46,7 +46,8 @@ def load_txt_polars(
     ignore_errors: bool = False,
     force_string_columns: Optional[list[str]] = None,
     verbose: bool = True,
-) -> pd.DataFrame:
+    return_polars: bool = False,
+) -> pl.DataFrame | pd.DataFrame:
     """Load a TXT/CSV file using Polars.
 
     Notes:
@@ -135,6 +136,8 @@ def load_txt_polars(
     if verbose:
         print(f"Finished loading {path.name} with Polars. Total rows: {df_polars.shape[0]}")
     
+    if return_polars:
+        return df_polars
     # Convert to pandas DataFrame for downstream compatibility
     return df_polars.to_pandas()
 
