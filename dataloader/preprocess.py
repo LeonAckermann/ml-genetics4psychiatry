@@ -42,11 +42,26 @@ def load_txt_polars(
     chunk_size: Optional[int] = 100000, 
     max_chunks: Optional[int] = None,
     total_chunks: Optional[int] = None,
+    null_values: Optional[list[str]] = None,
+    ignore_errors: bool = False,
+    force_string_columns: Optional[list[str]] = None,
     verbose: bool = True,
-) -> pl.DataFrame:
+) -> pd.DataFrame:
     """Load a TXT/CSV file using Polars.
+
+    Notes:
+    - Many genetics text formats use '.' to denote missing values. Polars will
+      error if it infers a numeric dtype but encounters '.' in that column.
+      Use ``null_values`` (defaults include '.') to treat those as nulls.
+    - If parsing still fails, this function retries with more permissive
+      settings (e.g. ``infer_schema_length=0``) and can optionally fall back
+      to reading all columns as strings.
+    - If you plan to merge/join in pandas, it helps to force key columns (e.g.
+      'ID') to string to avoid `int64` vs `object` key mismatches.
     """
+
     path = Path(data_path).expanduser().resolve()
+
     if not path.exists():
         raise FileNotFoundError(f"Data file not found: {path}")
     
@@ -59,7 +74,14 @@ def load_txt_polars(
 
     # Polars caveat: it does not support regex separators (like r"\s+") natively in read_csv.
     # If your data is standard CSV or TSV, set the exact character.
-    separator = sep if sep is not None else "\t" 
+    separator = sep if sep is not None else "\t"
+
+    # Common missing tokens in GWAS/genotype exports
+    effective_null_values = (
+        null_values
+        if null_values is not None
+        else [".", "NA", "N/A", "NaN", "nan", "NULL", "null", ""]
+    )
 
     # FAST PATH: No limits requested. Let Polars use full nativeif 
     # if max_chunks is None and chunk_size is None:
@@ -67,17 +89,54 @@ def load_txt_polars(
         print(f"Loading {path.name} (Native Polars Speed)...")
 
     # BATCHED PATH: Use batched reading for progress bars and max limits
-    df_polars = pl.read_csv(
-        path,
-        separator=separator,
-        batch_size=chunk_size if chunk_size else 100000,
-        n_rows=max_chunks * chunk_size if max_chunks and chunk_size else None
-    )
+    n_rows = max_chunks * chunk_size if max_chunks and chunk_size else None
+
+    read_kwargs: dict = {
+        "separator": separator,
+        "batch_size": chunk_size if chunk_size else 100000,
+        "n_rows": n_rows,
+        "null_values": effective_null_values,
+        "ignore_errors": ignore_errors,
+    }
+
+    if force_string_columns:
+        read_kwargs["schema_overrides"] = {c: pl.Utf8 for c in force_string_columns}
+
+    try:
+        df_polars = pl.read_csv(path, **read_kwargs)
+    except pl.exceptions.ComputeError as exc:
+        if verbose:
+            print(
+                f"Polars failed to parse {path.name}: {exc}. Retrying with more permissive settings..."
+            )
+
+        # Try harder: scan more/entire file to infer schema and allow ragged lines
+        try:
+            df_polars = pl.read_csv(
+                path,
+                **read_kwargs,
+                infer_schema_length=0,
+                truncate_ragged_lines=True,
+            )
+        except pl.exceptions.ComputeError:
+            if verbose:
+                print(
+                    f"Still failing to parse {path.name}. Falling back to reading all columns as strings."
+                )
+            df_polars = pl.read_csv(
+                path,
+                **read_kwargs,
+                infer_schema_length=0,
+                truncate_ragged_lines=True,
+                schema_overrides={},
+                dtypes=pl.Utf8,
+            )
 
     if verbose:
         print(f"Finished loading {path.name} with Polars. Total rows: {df_polars.shape[0]}")
     
-    return df_polars.to_pandas()  # Convert to pandas DataFrame for downstream compatibility
+    # Convert to pandas DataFrame for downstream compatibility
+    return df_polars.to_pandas()
 
 
 def load_txt(

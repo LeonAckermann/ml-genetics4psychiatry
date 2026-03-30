@@ -7,6 +7,61 @@ import sys
 
 from dataloader.preprocess import load_txt, load_txt_polars
 
+def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, polars=False):
+    path = Path(path).expanduser().resolve()
+    output_path = Path(output_path).expanduser().resolve()
+
+    # Collect all allRES.txt files recursively
+    allres_files = sorted(path.rglob("allRES.txt"))
+    if not allres_files:
+        raise FileNotFoundError(f"No allRES.txt files found under {path}")
+
+    print(f"Found {len(allres_files)} allRES.txt files")
+
+    merged = None
+    for file in allres_files:
+        # Use the immediate parent folder name as a unique suffix for columns
+        phenotype = file.parent.name
+
+        if polars:
+            df = load_txt_polars(file, chunk_size=chunk_size, total_chunks=total_chunks)
+        else:
+            df = load_txt(file, chunk_size=chunk_size, total_chunks=total_chunks)
+
+        # Keep only key columns and T_STAT, rename T_STAT to the phenotype name
+        df = df[["ID", "A1", "PROVISIONAL_REF?", "T_STAT"]]
+        df.rename(columns={"T_STAT": phenotype}, inplace=True)
+
+        if merged is None:
+            merged = df
+        else:
+            merged = merged.merge(df, on=["ID", "A1", "PROVISIONAL_REF?"], how="inner")
+
+        print(f"  Merged {phenotype}: {merged.shape[0]} rows remaining")
+
+    # rename column A1 to A0 and PROVISIONAL_REF? to A1
+    merged.rename(columns={"A1": "A0", "PROVISIONAL_REF?": "A1"}, inplace=True)
+
+    # count number of rows in merged
+    n_rows_merged = merged.shape[0]
+    # count number of unique IDs in merged
+    n_unique_ids = merged["ID"].nunique()
+
+    # output some statistics about the merged data in dictionary
+    stats = {
+        "n_files": len(allres_files),
+        "n_rows_merged": n_rows_merged,
+        "n_unique_ids": n_unique_ids
+    }
+
+    print(f"Final merged shape: {merged.shape}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(output_path, sep="\t", index=False)
+    print(f"Saved merged data to {output_path}")
+    return stats
+
+
+
 def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None, mri_path=None, polars=False):
     
     if verbose:

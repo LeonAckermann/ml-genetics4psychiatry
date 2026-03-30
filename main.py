@@ -15,7 +15,7 @@ import json
 from datetime import datetime
 
 import yaml
-from dataloader.pipeline import aligne_illness_mri, call_plink2, aligne_clumped_illness_mri
+from dataloader.pipeline import aligne_illness_mri, call_plink2, aligne_clumped_illness_mri, construct_gwas_mri
 from dataloader.preprocess import sample
 import numpy as np
 from sklearn.metrics import r2_score, mean_squared_error
@@ -298,6 +298,20 @@ def main() -> None:
     results_file = results_dir / f"{experiment_name}_{timestamp}.json"
     output = {}
 
+
+    # Construct merged GWAS MRI file (one-time preprocessing step)
+    construct_cfg = cfg.get("construct_gwas_mri", {})
+    if construct_cfg.get("run", False):
+        print("\nConstructing merged GWAS MRI file...")
+        stats = construct_gwas_mri(
+            path=construct_cfg["input_path"],
+            output_path=construct_cfg["output_path"],
+            chunk_size=construct_cfg.get("chunk_size", 10000),
+            total_chunks=construct_cfg.get("total_chunks", None),
+            polars=construct_cfg.get("polars", False)
+        )
+        print("Done constructing GWAS MRI file.")
+        output["gwas_mri_stats"] = stats
 
     # Run data processing pipeline
     if plink_cfg.get("prepare", False):
