@@ -8,26 +8,33 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import torch
+import polars as pl
 
-from dataloader.preprocess import DataConfig, load_csv, load_txt, preprocess
+from dataloader.preprocess import DataConfig, load_csv, load_txt, preprocess, load_txt_polars
 from dataloader.GWASDataset import GWASDataset
 
 from dataloader.preprocess import preprocess
 
-def load_illness_data(illness, in_notebook=True):
+def load_illness_data(illness, in_notebook=True, polars=False, distribution="low", chunk_size=100000, total_chunks=None, p_value="0.001"):
     illnesses = {"MDD": "0.001", "ADHD": "0.001", "ASD": "0.001", "OCD": "0.001", "SCZ": "0.0001", "BIP": "0.001"}
 
     if illness not in illnesses:
         raise ValueError(f"Unknown illness: {illness}. Valid options are: {', '.join(illnesses.keys())}")
     pval_threshold = illnesses[illness]
-    data_path = Path(f"data/tmpDATA-Leon/donnees_MRI_{illness}_only_variants_clumping_p_thr_{pval_threshold}all.txt")
+    data_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt"
     if in_notebook:
         data_path = Path("../..") / data_path
-    data_path = data_path.expanduser().resolve()
+    else:
+        data_path = Path(data_path).expanduser().resolve()
     print(f"Loading data for illness {illness} at {data_path}"  )
     if not data_path.exists():
         raise FileNotFoundError(f"Data file not found for illness {illness} at {data_path}")
-    df_illness = load_txt(data_path)
+    
+    if polars:
+        df_illness = load_txt_polars(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
+    else:
+        df_illness = load_txt(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
+    #df_illness = load_txt(data_path)
     return df_illness
 
 def prepare_data_splits(df, testsize, illness, nsplits, save=True):
@@ -36,7 +43,7 @@ def prepare_data_splits(df, testsize, illness, nsplits, save=True):
     Output: Saves train/test splits as .pt files in data/splits/{illness}_{nsplits}/seed_{seed}/
     """
     seeds = [42 + i for i in range(nsplits)]
-    target = f"Z_scores_{illness}"
+    target = f"Z"
     
     for seed in seeds:
         X_train, y_train, X_test, y_test = preprocess(df, target, testsize, seed)

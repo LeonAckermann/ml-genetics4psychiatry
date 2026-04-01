@@ -56,7 +56,7 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
         "ID":      common_ids,
         "A1":      common_a1,
         "OMITTED": common_omitted,
-    }).sort("ID")
+    }).sort(["ID", "A1", "OMITTED"])
     del common_ids, common_a1, common_omitted
     gc.collect()
 
@@ -87,7 +87,7 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
             raw.group_by(["ID", "A1", "OMITTED"])
             .agg(pl.col("T_STAT").sort_by(pl.col("T_STAT").abs()).last())
             .join(common_df, on=["ID", "A1", "OMITTED"], how="inner")
-            .sort("ID")
+            .sort(["ID", "A1", "OMITTED"])
         )
         del raw
         t_stat_matrix[:, i] = df["T_STAT"].to_numpy()

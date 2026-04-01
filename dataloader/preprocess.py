@@ -237,17 +237,27 @@ def preprocess(df, target, testsize, seed=42):
     X_test = scaler.transform(X_test)
     return X_train, y_train, X_test, y_test
 
-def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100):
+def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None):
 
     if data_path is None:
         data_path = "./data"
     else:
         data_path = "../../data"
 
-    df = load_txt(Path(f"{data_path}/pipeline/final/aligned_clumped_{illness}.txt"), chunk_size=10000)
-    df = df.copy()
-    significant = df.where(df["P"] <= p_value).dropna()  # Replace 'P' with your actual p-value column name
-    non_significant = df.where(df["P"] > p_value).dropna()  # Replace 'P' with your actual p-value column name
+    data_path = Path(f"{data_path}/pipeline/final/aligned_clumped_{illness}.txt").expanduser().resolve()
+    if polars:
+        df = load_txt_polars(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
+    else:
+        df = load_txt(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
+
+    #df = load_txt(Path(f"{data_path}/pipeline/final/aligned_clumped_{illness}.txt"), chunk_size=10000)
+    #df = df.copy()
+    #significant = df.where(df["P"] <= p_value).dropna()  # Replace 'P' with your actual p-value column name
+#
+    #non_significant = df.where(df["P"] > p_value).dropna()  # Replace 'P' with your actual p-value column name
+
+    significant     = df.loc[df["P"] <= p_value].copy()
+    non_significant = df.loc[df["P"] > p_value].copy()
 
     if distribution == "uninformed":
         if sample_size is None:
@@ -256,7 +266,7 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
         df = pd.concat([significant, sampled_non_significant], ignore_index=True)
         df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
         # save as txt file
-        output_path = Path(f"{data_path}/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
+        output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
         df.to_csv(output_path, sep="\t", index=False)
         print(f"Saved sampled data with uninformed distribution at {output_path} \n ")
     elif distribution == "uniform":
@@ -278,9 +288,33 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
         df = pd.concat([significant, sampled_non_significant], ignore_index=True)
         df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
         # save as txt file
-        output_path = Path(f"{data_path}/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
+        output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
         df.to_csv(output_path, sep="\t", index=False)
         print(f"Saved sampled data with uniform distribution at {output_path} \n ")
+    elif distribution == "low_high":
+        # sort non significant by P value in ascending order
+        non_significant = non_significant.sort_values(by="P", ascending=False)  # Replace 'P' with your actual p-value column name
+        
+        # take as many non-significant samples as significant samples, 
+        non_significant_sampled = non_significant.head(len(significant))
+        df = pd.concat([significant, non_significant_sampled], ignore_index=True)
+        df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
+        # save as txt file
+        output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
+        # make sure output directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(output_path, sep="\t", index=False)
+        print(f"Saved sampled data with low_high distribution at {output_path} \n ")
+    elif distribution == "low":
+        # just save the significant samples
+        df = significant.copy()
+        df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
+        # save as txt file
+        output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
+        # make sure output directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(output_path, sep="\t", index=False)
+        print(f"Saved sampled data with low distribution at {output_path} \n ")
     else:
         raise ValueError(f"Unsupported distribution: {distribution}")
 

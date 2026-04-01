@@ -63,6 +63,12 @@ def build_model(cfg: dict):
             best_l1_ratio=cfg["model"].get("best_l1_ratio", 0.1), 
             best_alpha=cfg["model"].get("best_alpha", 0.06951927961775606)
         ) # hyperparameters from previous tuning in notebook
+    elif name == "tabpfn":
+        from model import TabPFNModel
+        if cfg["model"].get("finetune", False):
+            from model import FinetunedTabPFNModel
+            return FinetunedTabPFNModel(random_state=cfg.get("seed", 42), device=cfg["model"].get("device", "cuda"), epochs=cfg["model"].get("epochs", 30), learning_rate=cfg["model"].get("learning_rate", 1e-5))
+        return TabPFNModel(random_state=cfg.get("seed", 42))
 
     elif name == "xgboost":
         from model import XGBoostTreeModel
@@ -87,6 +93,7 @@ def build_model(cfg: dict):
             "epochs": model_cfg.get("epochs", 100),
             "batch_size": model_cfg.get("batch_size", 32),
         }
+    
         
 
     elif name == "baseline":
@@ -357,6 +364,9 @@ def main() -> None:
             p_value=sampling_cfg["p_clump"],
             distribution=sampling_cfg["distribution"],
             illness=illness,
+            polars=sampling_cfg.get("polars", False),
+            chunk_size=sampling_cfg.get("chunk_size", 100000),
+            total_chunks=sampling_cfg.get("total_chunks", None)
         )
 
         output["sampling_metrics"] = metrics
@@ -372,7 +382,7 @@ def main() -> None:
         print(f"  Test size: {test_size}")
         print(f"  Save splits: {save_splits}")
         # Load data and prepare splits, 
-        df = load_illness_data(illness, in_notebook=False)
+        df = load_illness_data(illness, in_notebook=False, polars=data_cfg.get("polars", True), distribution=sampling_cfg.get("distribution", "low"), chunk_size=chunk_size, total_chunks=total_chunks, p_value=sampling_cfg["p_clump"])
         print(f"Loaded data for {illness}: {df.shape[0]} samples, {df.shape[1]} features")
 
         if save_splits:

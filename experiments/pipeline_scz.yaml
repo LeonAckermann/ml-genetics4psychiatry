@@ -1,14 +1,14 @@
 # Experiment: Linear Regression on Schizophrenia (SCZ)
 
 construct_gwas_mri:
-  run: false
+  run: true
   input_path: "data/pipeline/input/gwas_mri/pheno_gwas"
   output_path: "data/pipeline/input/gwas_mri/all_z_scores.txt"
   polars: true
   chunk_size: 100000
 
 plink2:
-  prepare: true
+  prepare: false
   p_clump: 1
   r2: 0.05
   clump_kb: 500

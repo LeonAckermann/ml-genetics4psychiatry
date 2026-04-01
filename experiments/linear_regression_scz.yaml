@@ -1,29 +1,29 @@
 # Experiment: Linear Regression on Schizophrenia (SCZ)
+construct_gwas_mri:
+  run: false
 
 plink2:
-  prepare: true
-  p_clump: 1
-  r2: 0.05
-  clump_kb: 500
-  ref: "./data/pipeline/input/clumping_ref_panel_and_cmd/EUR"
-  aligned: "./data/pipeline/intermediate/aligned_SCZ.txt"
-  output: "./data/pipeline/output/clumped_SCZ"
-  total_chunks: 2
-  chunk_size: 10000
+  prepare: false
 
 sampling:
-  p_clump: 
-  method: clumped
-  clumped_file: "./data/pipeline/output/clumped_SCZ.txt"
-  n_snps: null  # Set to a number (e.g. 1000) to limit the number of SNPs used
-
+  run: true
+  p_clump: 0.0001
+  distribution: low
+  polars: true
+  chunk_size: 10000
+  
 # Data settings
 data:
   illness: SCZ
-  target: Z_scores_SCZ
+  p_clump: 0.0001
+  target: Z
   test_size: 0.2
   n_splits: 10
   save_splits: true
+  polars: true
+
+experiment:
+  run: true
 
 # Model settings
 model:

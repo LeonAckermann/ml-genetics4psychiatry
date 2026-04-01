@@ -34,19 +34,12 @@ data:
 
 # Model settings
 model:
-  name: lasso_regression    # Options: linear_regression, lasso_regression, ridge_regression, dnn, baseline
-  #best_alpha: 0.02123011124333675       # Only used for lasso_regression, ignored otherwise
-  best_alpha: 0.12591974840976478       # Only used for lasso_regression, ignored otherwise
-# DNN-specific settings (ignored for linear_regression)
-# model:
-#   name: dnn
-#   hidden_dims: [50, 50]
-#   output_dim: 1
-#   dropout: 0.5
-#   learning_rate: 0.0005
-#   epochs: 100
-#   batch_size: 32
-
+  name: tabpfn    # Options: linear_regression, lasso_regression, ridge_regression, dnn, baseline
+  finetune: false
+  device: cuda
+  epochs: 30
+  learning_rate: 1e-5
+  
 # Evaluation settings
 evaluation:
   metrics: [r2, mse]
