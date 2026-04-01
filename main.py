@@ -291,7 +291,7 @@ def main() -> None:
 
      # Save results to JSON
     experiment_name = config_path.stem
-    results_dir = Path("../results") / experiment_name
+    results_dir = Path("./results") / experiment_name
     results_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -130,6 +130,30 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
     print(f"Saved merged data to {output_path}")
     return stats
 
+def merge_gwas_illness_mri(df_illness, df_mri):
+    # Step 1: direct match on [ID, A0, A1]
+    direct = df_illness.merge(df_mri, on=["ID", "A0", "A1"], how="inner")
+    n_rows_direct = direct.shape[0]
+
+    # Step 2: flip alleles for unmatched rows, invert Z-score (exclude palindromic SNPs)
+    direct_ids = set(direct["ID"])
+    illness_remaining = df_illness[~df_illness["ID"].isin(direct_ids)].copy()
+
+    palindromic = illness_remaining.apply(
+        lambda r: frozenset([r["A0"], r["A1"]]) in (frozenset(["A", "T"]), frozenset(["C", "G"])),
+        axis=1,
+    )
+    illness_remaining = illness_remaining[~palindromic].copy()
+    illness_remaining[["A0", "A1"]] = illness_remaining[["A1", "A0"]].values
+    illness_remaining["Z"] = -illness_remaining["Z"]
+
+    flipped = illness_remaining.merge(df_mri, on=["ID", "A0", "A1"], how="inner")
+    n_rows_flipped = flipped.shape[0]
+
+    # Step 3: concatenate
+    aligned = pd.concat([direct, flipped], ignore_index=True)
+    return aligned, n_rows_direct, n_rows_flipped, int(palindromic.sum())
+
 
 
 def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None, mri_path=None, polars=False):
@@ -153,9 +177,9 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
     if verbose:
         print(f"Loading GWAS data for illness {illness}")
     if polars:
-        df_illness = load_txt_polars(Path(f"../data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
+        df_illness = load_txt_polars(Path(f"./data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
     else:
-        df_illness = load_txt(Path(f"../data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
+        df_illness = load_txt(Path(f"./data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
     df_illness.rename(columns={"rsID": "ID"}, inplace=True)
     n_rows_illness = df_illness.shape[0]
     # drop rows with missing values    df_illness.dropna(inplace=True)
@@ -166,28 +190,30 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
     if verbose:
         print(f"Aligning data for illness {illness} with MRI data")
 
-    # Step 1: direct match on [ID, A0, A1]
-    direct = df_illness.merge(df_mri, on=["ID", "A0", "A1"], how="inner")
-    n_rows_direct = direct.shape[0]
+    aligned, n_rows_direct, n_rows_flipped, n_palindromic = merge_gwas_illness_mri(df_illness, df_mri)
 
-    # Step 2: flip alleles for unmatched rows, invert Z-score (exclude palindromic SNPs)
-    direct_ids = set(direct["ID"])
-    illness_remaining = df_illness[~df_illness["ID"].isin(direct_ids)].copy()
-
-    palindromic = illness_remaining.apply(
-        lambda r: frozenset([r["A0"], r["A1"]]) in (frozenset(["A", "T"]), frozenset(["C", "G"])),
-        axis=1,
-    )
-    n_palindromic = palindromic.sum()
-    illness_remaining = illness_remaining[~palindromic].copy()
-    illness_remaining[["A0", "A1"]] = illness_remaining[["A1", "A0"]].values
-    illness_remaining["Z"] = -illness_remaining["Z"]
-
-    flipped = illness_remaining.merge(df_mri, on=["ID", "A0", "A1"], how="inner")
-    n_rows_flipped = flipped.shape[0]
-
-    # Step 3: concatenate
-    aligned = pd.concat([direct, flipped], ignore_index=True)
+    ## Step 1: direct match on [ID, A0, A1]
+    #direct = df_illness.merge(df_mri, on=["ID", "A0", "A1"], how="inner")
+    #n_rows_direct = direct.shape[0]
+#
+    ## Step 2: flip alleles for unmatched rows, invert Z-score (exclude palindromic SNPs)
+    #direct_ids = set(direct["ID"])
+    #illness_remaining = df_illness[~df_illness["ID"].isin(direct_ids)].copy()
+#
+    #palindromic = illness_remaining.apply(
+    #    lambda r: frozenset([r["A0"], r["A1"]]) in (frozenset(["A", "T"]), frozenset(["C", "G"])),
+    #    axis=1,
+    #)
+    #n_palindromic = palindromic.sum()
+    #illness_remaining = illness_remaining[~palindromic].copy()
+    #illness_remaining[["A0", "A1"]] = illness_remaining[["A1", "A0"]].values
+    #illness_remaining["Z"] = -illness_remaining["Z"]
+#
+    #flipped = illness_remaining.merge(df_mri, on=["ID", "A0", "A1"], how="inner")
+    #n_rows_flipped = flipped.shape[0]
+#
+    ## Step 3: concatenate
+    #aligned = pd.concat([direct, flipped], ignore_index=True)
 
     #if verbose:
     #    print(f"  Direct matches:           {n_rows_direct}")
@@ -204,7 +230,7 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
     if verbose:
         print(f"Number of rows in aligned data: {n_rows_aligned}")
     # save it as txt file
-    output_path_illness= Path(f"../data/pipeline/intermediate/aligned_{illness}.txt").expanduser().resolve()
+    output_path_illness= Path(f"./data/pipeline/intermediate/aligned_{illness}.txt").expanduser().resolve()
     aligned.to_csv(output_path_illness, sep="\t", index=False)
     if verbose:
         print(f"Saved aligned data for illness {illness} at {output_path_illness}")
@@ -255,9 +281,9 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
     if verbose:
         print(f"Loading clumped data for illness {illness}")
     if polars:
-        df_clumped = load_txt_polars(Path(f"../data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size, total_chunks=total_chunks)
+        df_clumped = load_txt_polars(Path(f"./data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size, total_chunks=total_chunks)
     else:
-        df_clumped = load_txt(Path(f"../data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size)
+        df_clumped = load_txt(Path(f"./data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size)
     df_clumped.rename(columns={"ID": "ID"}, inplace=True)
     n_rows_clumped = df_clumped.shape[0]
      # drop rows with missing values
@@ -270,7 +296,7 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
         print(f"Loading aligned MRI data for illness {illness}")
     
     if mri_path is None:
-        mri_path = Path(f"../data/pipeline/input/gwas_mri/all_z_scores.txt")
+        mri_path = Path(f"./data/pipeline/input/gwas_mri/all_z_scores.txt")
     if polars:
         df_mri = load_txt_polars(Path(mri_path), chunk_size=chunk_size, total_chunks=total_chunks)
     else:
@@ -284,9 +310,9 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
     if verbose:
         print(f"Loading GWAS data for illness {illness}")
     if polars:
-        df_illness = load_txt_polars(Path(f"../data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
+        df_illness = load_txt_polars(Path(f"./data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
     else:
-        df_illness = load_txt(Path(f"../data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
+        df_illness = load_txt(Path(f"./data/pipeline/input/gwas_illness/z_{illness}.txt"), chunk_size=chunk_size)
     df_illness.rename(columns={"rsID": "ID"}, inplace=True)
     n_rows_illness = df_illness.shape[0]
     # drop rows with missing values    df_illness.dropna(inplace=True)
@@ -296,10 +322,13 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
         print(f"Number of rows in illness data rows dropped: {n_rows_illness - n_rows_illness_after_drop}")
     if verbose:
         print(f"Aligning data for illness {illness} with MRI data")
-    aligned_illness = df_illness.merge(df_mri, on="ID", how="inner")
+    #aligned_illness = df_illness.merge(df_mri, on="ID, ", how="inner")
+    aligned_illness, _, _, _ = merge_gwas_illness_mri(df_illness, df_mri)
+
     cols_to_keep = [col for col in aligned_illness.columns if col not in ["P"]]
     aligned_illness = aligned_illness[cols_to_keep]
     aligned = df_clumped.merge(aligned_illness, on="ID", how="inner")
+    
     if verbose:
         print(f"Number of rows in aligned clumped data: {aligned.shape[0]}")
 
@@ -307,7 +336,7 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
     # remove columns chrom	pos	A0	A1	N
     #CHROM	POS	P	TOTAL	NONSIG	S0.05	S0.01	S0.001	S0.0001	SP2	chrom	pos	A0	A1	N
     aligned = aligned.drop(columns=["#CHROM","POS","TOTAL","NONSIG","S0.05","S0.01","S0.001","S0.0001","SP2","chrom","pos","A0","A1","N"])
-    output_path = Path(f"../data/pipeline/final/aligned_clumped_{illness}.txt").expanduser().resolve()
+    output_path = Path(f"./data/pipeline/final/aligned_clumped_{illness}.txt").expanduser().resolve()
     aligned.to_csv(output_path, sep="\t", index=False)
     if verbose:
         print(f"Saved aligned clumped data for illness {illness} at {output_path}")

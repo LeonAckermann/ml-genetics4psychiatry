@@ -1,23 +1,24 @@
 # Experiment: Linear Regression on Schizophrenia (SCZ)
 
 construct_gwas_mri:
-  run: true
+  run: false
   input_path: "data/pipeline/input/gwas_mri/pheno_gwas"
   output_path: "data/pipeline/input/gwas_mri/all_z_scores.txt"
   polars: true
   chunk_size: 100000
 
 plink2:
-  prepare: false
+  prepare: true
   p_clump: 1
   r2: 0.05
   clump_kb: 500
   #total_chunks: 5
   chunk_size: 100000
-  mri: "../../../WKD_ANTOINE/__HETEROGEN_MULTITRAIT/data/processed/all_data_gwas/all_z_scores.txt"
-  ref: "../data/pipeline/input/ref_panel/All_ensemble_1000G_hg38_EUR_all_chr"
-  aligned: "../data/pipeline/intermediate/aligned_SCZ.txt"
-  output: "../data/pipeline/output/clumped_SCZ"
+  #mri: "../../../WKD_ANTOINE/__HETEROGEN_MULTITRAIT/data/processed/all_data_gwas/all_z_scores.txt"
+  mri: "./data/pipeline/input/gwas_mri/all_z_scores.txt"
+  ref: "./data/pipeline/input/ref_panel/All_ensemble_1000G_hg38_EUR_all_chr"
+  aligned: "./data/pipeline/intermediate/aligned_SCZ.txt"
+  output: "./data/pipeline/output/clumped_SCZ"
   polars: true
 
 experiment:
