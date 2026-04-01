@@ -11,3 +11,4 @@ from .LassoRegression import LassoRegressionModel  # noqa: F401
 from .ElasticRegression import ElasticRegressionModel  # noqa: F401
 
 from .XGBoost import XGBoostTreeModel  # noqa: F401
+from .TabPFN import TabPFNModel, FinetunedTabPFNModel  # noqa: F401
