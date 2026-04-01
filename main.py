@@ -411,7 +411,7 @@ def main() -> None:
 
             if cfg["model"]["name"] in ["dnn", "residual_dnn"]:
                 preds = train_dnn(model, X_train, y_train, X_val, y_val, X_test, y_test, cfg)
-            elif cfg["model"]["name"] in ["linear_regression", "ridge_regression", "lasso_regression", "xgboost", "elastic_regression"]:
+            elif cfg["model"]["name"] in ["linear_regression", "ridge_regression", "lasso_regression", "xgboost", "elastic_regression", "tabpfn"]:
                 preds = train_sklearn(model, X_train, y_train, X_test, y_test, cfg)
 
             split_metrics = evaluate(y_test, preds, cfg)
