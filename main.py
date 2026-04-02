@@ -297,13 +297,16 @@ def main() -> None:
     sampling_cfg = cfg["sampling"]
 
      # Save results to JSON
-    experiment_name = config_path.stem
-    results_dir = Path("./results") / experiment_name
-    results_dir.mkdir(parents=True, exist_ok=True)
+    if construct_cfg.get("run", False) or plink_cfg.get("prepare", False) :
+        experiment_name = config_path.stem
+        results_dir = Path("./results") / experiment_name
+        results_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = results_dir / f"{experiment_name}_{timestamp}.json"
-    output = {}
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        results_file = results_dir / f"{experiment_name}_{timestamp}.json"
+        output = {}
+    
+    written = False
 
 
     # Construct merged GWAS MRI file (one-time preprocessing step)
@@ -355,82 +358,94 @@ def main() -> None:
             print(f"Aligned data not found at {aligned_path}. Please run the data processing pipeline first with --prepare flag.")
             return
         
-    if sampling_cfg.get("run", True):
-        print("\nRunning sampling...")
-        print(f"  P-value threshold: {sampling_cfg['p_clump']}")
-        print(f"  Distribution: {sampling_cfg['distribution']}")
-        print(f"  Illness: {illness} \n")
-        metrics = sample(
-            p_value=sampling_cfg["p_clump"],
-            distribution=sampling_cfg["distribution"],
-            illness=illness,
-            polars=sampling_cfg.get("polars", False),
-            chunk_size=sampling_cfg.get("chunk_size", 100000),
-            total_chunks=sampling_cfg.get("total_chunks", None)
-        )
-
-        output["sampling_metrics"] = metrics
-
     
     if cfg["experiment"].get("run", True):
 
+    
+        # construct data dict based on data_cfg distribution, p_clump, and illness, this could be multiple runs
+        for dist, p, illness in zip(sampling_cfg.get("distribution", []), sampling_cfg.get("p_clump", []), sampling_cfg.get("illness", [])):
+            
+            experiment_name = f"{cfg['model']['name']}_{illness}_p{p}_{dist}"
+            experiment_name = config_path.stem
+            results_dir = Path("./results") / experiment_name
+            
+            results_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            results_file = results_dir / f"{experiment_name}_{timestamp}.json"
+            output = {}
+            
+            if data_cfg.get("sampling", False):
+                print(f"\nSampling data for illness={illness}, p_clump={p}, distribution={dist}...")
+                metrics = sample(
+                    p_value=p,
+                    distribution=dist,
+                    illness=illness,
+                    polars=data_cfg.get("polars", False),
+                    chunk_size=data_cfg.get("chunk_size", 100000),
+                    total_chunks=data_cfg.get("total_chunks", None)
+                )
+                output[f"sampling_metrics_{illness}_{dist}_p{p}"] = metrics
+            else:
+                print(f"\nSkipping sampling for illness={illness}, p_clump={p}, distribution={dist} since sampling flag is set to False.")
+                # check whether data exists, if not raise error
+                data_path = Path(f"./data/sampled/{dist}/sampled_{illness}_p{p}.txt")
+                if not data_path.exists():
+                    raise FileNotFoundError(f"Sampled data not found at {data_path}. Please run the sampling step first with sampling flag set to True.")
 
-        print(f"Experiment config: {config_path.name}")
-        print(f"  Illness:  {illness}")
-        print(f"  Model:    {cfg['model']['name']}")
-        print(f"  Splits:   {n_splits}")
-        print(f"  Test size: {test_size}")
-        print(f"  Save splits: {save_splits}")
-        # Load data and prepare splits, 
-        df = load_illness_data(illness, in_notebook=False, polars=data_cfg.get("polars", True), distribution=sampling_cfg.get("distribution", "low"), chunk_size=chunk_size, total_chunks=total_chunks, p_value=sampling_cfg["p_clump"])
-        print(f"Loaded data for {illness}: {df.shape[0]} samples, {df.shape[1]} features")
+            # Load data and prepare splits, 
+            df = load_illness_data(illness, in_notebook=False, polars=data_cfg.get("polars", True), distribution=dist, chunk_size=chunk_size, total_chunks=total_chunks, p_value=p)
+            print(f"Loaded data for {illness}: {df.shape[0]} samples, {df.shape[1]} features")
 
-        if save_splits:
-            prepare_data_splits(df, test_size, illness, nsplits=n_splits, save=True)
+            if save_splits:
+                prepare_data_splits(df, test_size, illness, nsplits=n_splits, save=True)
 
-        # Build model
-        model = build_model(cfg)
+            # Build model
+            model = build_model(cfg)
 
-        # Run over all splits
-        all_preds, all_y_test = [], []
-        seeds = [42 + i for i in range(n_splits)]
-        seed_results = []
+            # Run over all splits
+            all_preds, all_y_test = [], []
+            seeds = [42 + i for i in range(n_splits)]
+            seed_results = []
 
-        for i, seed in enumerate(seeds):
-            print(f"\n--- Split {i+1}/{n_splits} (seed={seed}) ---")
-            cfg["seed"] = seed  # Add seed to config for reproducibility
-            X_train, y_train, X_test, y_test = load_data_split(illness, n_splits, seed)
-            X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=seed+1)
+            for i, seed in enumerate(seeds):
+                print(f"\n--- Split {i+1}/{n_splits} (seed={seed}) ---")
+                cfg["seed"] = seed  # Add seed to config for reproducibility
+                X_train, y_train, X_test, y_test = load_data_split(illness, n_splits, seed)
+                X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.1, random_state=seed+1)
 
 
-            # Convert tensors to numpy if needed
-            #if hasattr(X_train, "numpy"):
-            #    X_train, y_train = X_train.numpy(), y_train.numpy()
-            #    X_val, y_val = X_val.numpy(), y_val.numpy()
-            #    X_test, y_test = X_test.numpy(), y_test.numpy()
+                # Convert tensors to numpy if needed
+                #if hasattr(X_train, "numpy"):
+                #    X_train, y_train = X_train.numpy(), y_train.numpy()
+                #    X_val, y_val = X_val.numpy(), y_val.numpy()
+                #    X_test, y_test = X_test.numpy(), y_test.numpy()
 
-            if cfg["model"]["name"] in ["dnn", "residual_dnn"]:
-                preds = train_dnn(model, X_train, y_train, X_val, y_val, X_test, y_test, cfg)
-            elif cfg["model"]["name"] in ["linear_regression", "ridge_regression", "lasso_regression", "xgboost", "elastic_regression", "tabpfn"]:
-                preds = train_sklearn(model, X_train, y_train, X_test, y_test, cfg)
+                if cfg["model"]["name"] in ["dnn", "residual_dnn"]:
+                    preds = train_dnn(model, X_train, y_train, X_val, y_val, X_test, y_test, cfg)
+                elif cfg["model"]["name"] in ["linear_regression", "ridge_regression", "lasso_regression", "xgboost", "elastic_regression", "tabpfn"]:
+                    preds = train_sklearn(model, X_train, y_train, X_test, y_test, cfg)
 
-            split_metrics = evaluate(y_test, preds, cfg)
-            split_metrics["seed"] = seed
-            seed_results.append(split_metrics)
-            all_preds.append(preds)
-            all_y_test.append(y_test)
+                split_metrics = evaluate(y_test, preds, cfg)
+                split_metrics["seed"] = seed
+                seed_results.append(split_metrics)
+                all_preds.append(preds)
+                all_y_test.append(y_test)
 
-        # Aggregate results across splits
-        all_preds = np.concatenate(all_preds)
-        all_y_test = np.concatenate(all_y_test)
-        print("\n###  Aggregated results across all splits  ###")
-        aggregated_metrics = evaluate(all_y_test, all_preds, cfg)
+            # Aggregate results across splits
+            all_preds = np.concatenate(all_preds)
+            all_y_test = np.concatenate(all_y_test)
+            print("\n###  Aggregated results across all splits  ###")
+            aggregated_metrics = evaluate(all_y_test, all_preds, cfg)
 
-        output["experiment"] = experiment_name
-        output["config"] = cfg
-        output["timestamp"] = timestamp
-        output["per_seed"] = seed_results
-        output["aggregated"] = aggregated_metrics
+            output["experiment"] = experiment_name
+            output["config"] = cfg
+            output["timestamp"] = timestamp
+            output["per_seed"] = seed_results
+            output["aggregated"] = aggregated_metrics
+
+
+            with open(results_file, "w") as f:
+                json.dump(output, f, indent=2)
 
     
 
@@ -438,8 +453,9 @@ def main() -> None:
     else:
         print("Experiment run flag is set to False. Skipping training and evaluation.")
 
-    with open(results_file, "w") as f:
-        json.dump(output, f, indent=2)
+    if not written:
+        with open(results_file, "w") as f:
+            json.dump(output, f, indent=2)
 
     print(f"\nResults saved to {results_file}")
 
