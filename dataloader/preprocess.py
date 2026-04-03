@@ -284,11 +284,12 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
             lambda x: x.sample(n=min_samples, replace=True) if len(x) >= min_samples else x
         ).reset_index(drop=True)
         # remove Z_bin column
-        sampled_non_significant.drop(columns=["Z_bin"], inplace=True)
+        #sampled_non_significant.drop(columns=["Z_bin"], inplace=True)
         df = pd.concat([significant, sampled_non_significant], ignore_index=True)
         df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
         # save as txt file
         output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output_path, sep="\t", index=False)
         print(f"Saved sampled data with uniform distribution at {output_path} \n ")
     elif distribution == "low_high":

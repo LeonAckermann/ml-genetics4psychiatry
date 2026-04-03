@@ -4,32 +4,30 @@ construct_gwas_mri:
 
 plink2:
   prepare: false
-
   
 # Data settings
 data:
-  illness: SCZ
-  p_clump: 0.0001
+  illness: [SCZ, BIP, AZ, ADHD, OCD, MDD]
+  p_clump: [0.0001, 0.001, 0.01]
   target: Z
-  distribution: low
   test_size: 0.2
   n_splits: 10
   save_splits: true
   polars: true
-  sampling: true
+  distribution: [low_high, uniform]
+  sampling: false
 
 experiment:
   run: true
-# Data settings
 
 # Model settings
 model:
-  name: tabpfn    # Options: linear_regression, lasso_regression, ridge_regression, dnn, baseline, tabpfn
+  name: tabpfn    # Options: linear_regression, lasso_regression, ridge_regression, dnn, baseline
   finetune: false
   device: cuda
   epochs: 30
   learning_rate: 1e-5
-  
+
 # Evaluation settings
 evaluation:
   metrics: [r2, mse, stderr]

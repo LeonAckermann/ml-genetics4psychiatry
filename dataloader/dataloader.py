@@ -16,7 +16,7 @@ from dataloader.GWASDataset import GWASDataset
 from dataloader.preprocess import preprocess
 
 def load_illness_data(illness, in_notebook=True, polars=False, distribution="low", chunk_size=100000, total_chunks=None, p_value="0.001"):
-    illnesses = {"MDD": "0.001", "ADHD": "0.001", "ASD": "0.001", "OCD": "0.001", "SCZ": "0.0001", "BIP": "0.001"}
+    illnesses = {"MDD": "0.001", "ADHD": "0.001", "ASD": "0.001", "OCD": "0.001", "SCZ": "0.0001", "BIP": "0.001", "AZ": "0.001"}
 
     if illness not in illnesses:
         raise ValueError(f"Unknown illness: {illness}. Valid options are: {', '.join(illnesses.keys())}")

@@ -287,7 +287,7 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
     df_clumped.rename(columns={"ID": "ID"}, inplace=True)
     n_rows_clumped = df_clumped.shape[0]
      # drop rows with missing values
-    df_clumped.dropna(inplace=True)
+    #df_clumped.dropna(inplace=True) 
     n_rows_clumped_after_drop = df_clumped.shape[0]
     if verbose:
         print(f"Number of rows in clumped data: {n_rows_clumped}")

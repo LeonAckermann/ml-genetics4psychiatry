@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 class LinearRegressionModel:
     def __init__(self, random_state=42):
-        self.model = LinearRegression(random_state=random_state)
+        self.model = LinearRegression()
 
     def fit(self, X_train, y_train):
         self.model.fit(X_train, y_train)

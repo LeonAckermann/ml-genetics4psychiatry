@@ -14,6 +14,7 @@ from pathlib import Path
 import json
 from datetime import datetime
 
+from itertools import product
 import yaml
 from dataloader.pipeline import aligne_illness_mri, call_plink2, aligne_clumped_illness_mri, construct_gwas_mri
 from dataloader.preprocess import sample
@@ -234,6 +235,10 @@ def evaluate(y_test, preds, cfg):
     if "mse" in metric_names:
         results["mse"] = float(mean_squared_error(y_test, preds))
         print(f"  MSE:         {results['mse']:.4f}")
+    if "stderr" in metric_names:
+        stderr = np.sqrt(mean_squared_error(y_test, preds) / len(y_test))
+        results["stderr"] = float(stderr)
+        print(f"  StdErr:      {results['stderr']:.4f}")
 
     print("=" * 44)
 
@@ -287,6 +292,7 @@ def main() -> None:
         cfg = yaml.safe_load(f)
 
     plink_cfg = cfg["plink2"]
+    construct_cfg = cfg.get("construct_gwas_mri", {})
     data_cfg = cfg["data"]
     illness = data_cfg["illness"]
     n_splits = data_cfg.get("n_splits", 5)
@@ -294,7 +300,6 @@ def main() -> None:
     save_splits = data_cfg.get("save_splits", True)
     total_chunks = plink_cfg.get("total_chunks", None)
     chunk_size = plink_cfg.get("chunk_size", 10000)
-    sampling_cfg = cfg["sampling"]
 
      # Save results to JSON
     if construct_cfg.get("run", False) or plink_cfg.get("prepare", False) :
@@ -310,7 +315,6 @@ def main() -> None:
 
 
     # Construct merged GWAS MRI file (one-time preprocessing step)
-    construct_cfg = cfg.get("construct_gwas_mri", {})
     if construct_cfg.get("run", False):
         print("\nConstructing merged GWAS MRI file...")
         stats = construct_gwas_mri(
@@ -350,23 +354,23 @@ def main() -> None:
         output["plink2"] = plink2
         output["clumped_illness_mri_alignment"] = second_alignment
 
-    else:
-        # check if aligned data exists, if not run the alignment step
-        aligned_path = Path(f"./data/pipeline/final/aligned_clumped_{illness}.txt")
-        if not aligned_path.exists():
-            # tell uer to run the pipeline first
-            print(f"Aligned data not found at {aligned_path}. Please run the data processing pipeline first with --prepare flag.")
-            return
+    #else:
+    #    # check if aligned data exists, if not run the alignment step
+    #    aligned_path = Path(f"./data/pipeline/final/aligned_clumped_{illness}.txt")
+    #    if not aligned_path.exists():
+    #        # tell uer to run the pipeline first
+    #        print(f"Aligned data not found at {aligned_path}. Please run the data processing pipeline first with --prepare flag.")
+    #        return
         
     
     if cfg["experiment"].get("run", True):
 
     
         # construct data dict based on data_cfg distribution, p_clump, and illness, this could be multiple runs
-        for dist, p, illness in zip(sampling_cfg.get("distribution", []), sampling_cfg.get("p_clump", []), sampling_cfg.get("illness", [])):
+        for dist, p, illness in product(data_cfg.get("distribution", []), data_cfg.get("p_clump", []), data_cfg.get("illness", [])):
             
+            print("Starting experiment with illness={}, p_clump={}, distribution={}...".format(illness, p, dist))
             experiment_name = f"{cfg['model']['name']}_{illness}_p{p}_{dist}"
-            experiment_name = config_path.stem
             results_dir = Path("./results") / experiment_name
             
             results_dir.mkdir(parents=True, exist_ok=True)
@@ -447,13 +451,15 @@ def main() -> None:
             with open(results_file, "w") as f:
                 json.dump(output, f, indent=2)
 
+            print(f"\nResults saved to {results_file}")
+
     
 
         
     else:
         print("Experiment run flag is set to False. Skipping training and evaluation.")
 
-    if not written:
+    if not written and not cfg["experiment"].get("run", True):
         with open(results_file, "w") as f:
             json.dump(output, f, indent=2)
 
