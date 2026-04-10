@@ -11,3 +11,4 @@ piecewise-regression
 tabpfn
 polars
 pyarrow
+optuna
