@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import gc
+import torch
 
 from pathlib import Path
 
@@ -118,6 +119,8 @@ def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=No
     """Perform nested cross-validation using Optuna for XGBoost."""
     from xgboost import XGBRegressor
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     if search_space is None:
         search_space = {
             'n_estimators': [100, 1000],
@@ -192,7 +195,7 @@ def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=No
                 )
 
 
-                model = xgb.XGBRegressor(**params, callbacks=[early_stop])
+                model = xgb.XGBRegressor(**params, callbacks=[early_stop], device=device)
 
                 model.fit(X_train_inner, y_train_inner, eval_set=[(X_val_inner, y_val_inner)], verbose=False)
                 #model = xgb.train(params,
@@ -248,7 +251,7 @@ def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=No
                     rounds=best_params.get("early_stopping_rounds", 10), metric_name='rmse', data_name='validation_0', save_best=True
                 )
 
-        best_params_model = xgb.XGBRegressor(**best_params, callbacks=[early_stop_best_params])
+        best_params_model = xgb.XGBRegressor(**best_params, callbacks=[early_stop_best_params], device=device)
         best_params_model.fit(X_train_final, y_train_final, eval_set=[(X_val_final, y_val_final)], verbose=False)
 
         final_preds = best_params_model.predict(X_test_outer)
@@ -505,13 +508,17 @@ def nested_cv_regularized_regression(X, y, model_name='lasso_regression', outer_
 
 def normal_cv_linear_regression(X, y, cv=5):
     """Perform normal cross-validation for Linear regression (no HPO)."""
-    from model import LinearRegressionModel
+    from sklearn.linear_model import LinearRegression # <-- Import standard sklearn model
 
     X_arr = np.asarray(X, dtype=np.float32)
     y_arr = np.asarray(y, dtype=np.float32)
     
-    model = LinearRegressionModel()
-    scores = cross_val_score(model, X_arr, y_arr, cv=cv, scoring='r2')
+    model = LinearRegression()
+    pipeline = Pipeline([
+        ('scaler', StandardScaler()),
+        ('model', model)
+    ])
+    scores = cross_val_score(pipeline, X_arr, y_arr, cv=cv, scoring='r2')
     
     mean_score = scores.mean()
     std_score = scores.std()

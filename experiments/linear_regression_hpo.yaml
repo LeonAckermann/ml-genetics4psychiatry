@@ -25,15 +25,12 @@ experiment:
 
 # Model settings
 model:
-  name: lasso_regression    # Options: linear_regression, dnn, baseline
+  name: linear_regression    # Options: linear_regression, dnn, baseline
 # Hyperparameter optimization settings
 hpo:
   run: true
-  n_trials: 10
   outer_cv: 5
-  inner_cv: 5
-  search_space:
-    alpha: [0.00001, 10000]
+
 # Evaluation settings
 evaluation:
   metrics: [r2, mse]

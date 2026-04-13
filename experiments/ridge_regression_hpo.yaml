@@ -25,7 +25,7 @@ experiment:
 
 # Model settings
 model:
-  name: lasso_regression    # Options: linear_regression, dnn, baseline
+  name: ridge_regression    # Options: linear_regression, dnn, baseline
 # Hyperparameter optimization settings
 hpo:
   run: true
