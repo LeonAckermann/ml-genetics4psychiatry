@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+import gc
 
 from pathlib import Path
 
@@ -15,6 +16,8 @@ import json
 from datetime import datetime
 
 from itertools import product
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 import yaml
 import optuna
 from sklearn.model_selection import KFold, cross_val_score
@@ -28,6 +31,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
 from optuna.samplers import TPESampler
+import xgboost as xgb
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +114,7 @@ def build_model(cfg: dict):
         raise ValueError(f"Unknown model: {name}")
 
 
-def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=None):
+def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=None, val_size=0.1):
     """Perform nested cross-validation using Optuna for XGBoost."""
     from xgboost import XGBRegressor
 
@@ -125,6 +129,7 @@ def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=No
             'reg_lambda': [0, 5.0],
             'min_child_weight': [1, 10],
             'gamma': [0, 1.0],
+            "early_stopping_rounds": [10, 50],
         }
 
     X_arr = np.asarray(X, dtype=np.float32)
@@ -138,13 +143,15 @@ def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=No
     for fold, (train_idx, test_idx) in enumerate(outer_kfold.split(X_arr)):
         print(f"--- Starting Outer Fold {fold + 1}/{outer_cv} ---")
         X_train_outer, X_test_outer = X_arr[train_idx], X_arr[test_idx]
-        y_train_outer, y_test_outer = y_arr[train_idx], y_arr[test_idx]
+        y_train_outer, y_test_outer = y_arr[train_idx], y_arr[test_idx]  
 
         def objective(trial):
             params = {
                 'random_state': 42,
                 'verbosity': 0,
                 'n_jobs': 1,
+                'tree_method': 'hist',  # More memory efficient than exact
+                "objective": "reg:squarederror",  # Regression with squared loss
             }
             for param_name, bounds in search_space.items():
                 if isinstance(bounds, list) and len(bounds) == 2:
@@ -160,11 +167,53 @@ def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=No
                     params[param_name] = bounds
 
             print(f"    Inner trial {trial.number + 1}/{n_trials} evaluating params: {params}")
-            model = XGBRegressor(**params)
-            scores = cross_val_score(model, X_train_outer, y_train_outer, cv=inner_cv, scoring='r2', n_jobs=1)
-            mean_score = scores.mean()
-            print(f"    Trial {trial.number + 1} mean inner R2: {mean_score:.4f}")
-            return mean_score
+            inner_scores = []
+            inner_kfold = KFold(n_splits=inner_cv, shuffle=True, random_state=42)
+            for inner_fold, (inner_train_idx, inner_val_idx) in enumerate(inner_kfold.split(X_train_outer)):
+                X_train_inner = X_train_outer[inner_train_idx]
+                y_train_inner = y_train_outer[inner_train_idx]
+                X_train_inner, X_val_inner, y_train_inner, y_val_inner = train_test_split(
+                    X_train_inner,
+                    y_train_inner,
+                    test_size=val_size,
+                    random_state=42,
+                )
+                X_test_inner = X_train_outer[inner_val_idx]
+                y_test_inner = y_train_outer[inner_val_idx]
+
+                #dtrain = xgb.DMatrix(X_train_inner, label=y_train_inner)
+                #dval = xgb.DMatrix(X_val_inner, label=y_val_inner)
+                #dtest = xgb.DMatrix(X_test_inner, label=y_test_inner)
+
+                #evals = [(dtrain, 'train'), (dval, 'eval')]
+
+                early_stop = xgb.callback.EarlyStopping(
+                    rounds=params.get("early_stopping_rounds", 10), metric_name='rmse', data_name='validation_0', save_best=True
+                )
+
+
+                model = xgb.XGBRegressor(**params, callbacks=[early_stop])
+
+                model.fit(X_train_inner, y_train_inner, eval_set=[(X_val_inner, y_val_inner)], verbose=False)
+                #model = xgb.train(params,
+                #                  dtrain,
+                #                  num_boost_round=params['n_estimators'],
+                #                  evals=evals,
+                #                  early_stopping_rounds=int(params.get("early_stopping_rounds", 10)),
+                #                  verbose_eval=False)
+
+                preds = model.predict(X_test_inner)
+
+                val_score = r2_score(y_test_inner, preds)
+                inner_scores.append(val_score)
+                print(f"        Inner fold {inner_fold + 1} R2: {val_score:.4f}")
+
+                # Explicit memory cleanup
+                del model, X_train_inner, y_train_inner, X_val_inner, y_val_inner, X_test_inner, y_test_inner, preds
+            mean_inner_score = float(np.mean(inner_scores))
+            print(f"    Trial {trial.number + 1} mean inner R2: {mean_inner_score:.4f}")
+            gc.collect()  # Force garbage collection after each trial
+            return mean_inner_score
             
         sampler = TPESampler(seed=42 + fold)
         study = optuna.create_study(direction='maximize', sampler=sampler)
@@ -174,11 +223,43 @@ def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=No
         best_params = study.best_params
         best_params.update({'random_state': 42, 'verbosity': 0, 'n_jobs': 1})
         fold_best_params.append(best_params)
-        best_model_for_fold = XGBRegressor(**best_params)
-        best_model_for_fold.fit(X_train_outer, y_train_outer)
 
-        y_pred = best_model_for_fold.predict(X_test_outer)
-        score = r2_score(y_test_outer, y_pred)
+        X_train_final, X_val_final, y_train_final, y_val_final = train_test_split(
+            X_train_outer,
+            y_train_outer,
+            test_size=val_size,
+            random_state=42,
+        )
+
+        #dtrain = xgb.DMatrix(X_train_final, label=y_train_final)
+        #dval = xgb.DMatrix(X_val_final, label=y_val_final)
+        #dtest = xgb.DMatrix(X_test_outer, label=y_test_outer)
+        #evals = [(dtrain, 'train'), (dval, 'eval')]
+
+        print(f"  Training final DNN on outer training set with {len(X_train_final)} train / {len(X_val_final)} val samples")
+
+        #best_params_model = xgb.train(best_params, 
+        #                  dtrain, 
+        #                  num_boost_round=best_params['n_estimators'], 
+        #                  evals=evals, 
+        #                  early_stopping_rounds=int(best_params.get("early_stopping_rounds", 10)), 
+        #                  verbose_eval=False)
+        early_stop_best_params = xgb.callback.EarlyStopping(
+                    rounds=best_params.get("early_stopping_rounds", 10), metric_name='rmse', data_name='validation_0', save_best=True
+                )
+
+        best_params_model = xgb.XGBRegressor(**best_params, callbacks=[early_stop_best_params])
+        best_params_model.fit(X_train_final, y_train_final, eval_set=[(X_val_final, y_val_final)], verbose=False)
+
+        final_preds = best_params_model.predict(X_test_outer)
+                
+        #preds = best_params_model.predict(X_test_outer)
+        score = r2_score(y_test_outer, final_preds)
+
+        #best_model_for_fold = XGBRegressor(**best_params)
+        #best_model_for_fold.fit(X_train_outer, y_train_outer)
+        #y_pred = best_model_for_fold.predict(X_test_outer)
+        #score = r2_score(y_test_outer, y_pred)
         outer_scores.append(score)
 
         print(f"Outer Fold {fold + 1} R2 Score: {score:.4f}")
@@ -189,7 +270,7 @@ def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=No
     print("=== Final Nested CV Results ===")
     print(f"Average R2: {mean_score:.4f} (+/- {std_score:.4f})")
 
-    return best_model_for_fold, outer_scores, mean_score, std_score, fold_best_params
+    return outer_scores, mean_score, std_score, fold_best_params
 
 
 def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_trials=50, search_space=None, val_size=0.1):
@@ -274,6 +355,11 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
                 X_test_inner = X_train_outer[inner_val_idx]
                 y_test_inner = y_train_outer[inner_val_idx]
 
+                scaler = StandardScaler()
+                X_train_inner = scaler.fit_transform(X_train_inner)
+                X_val_inner = scaler.transform(X_val_inner)
+                X_test_inner = scaler.transform(X_test_inner)
+
                 # Clone config for each inner fold
                 inner_model_cfg = model_cfg.copy()
                 preds = train_dnn(
@@ -321,6 +407,11 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
             test_size=val_size,
             random_state=42,
         )
+        scaler = StandardScaler()
+        X_train_final = scaler.fit_transform(X_train_final)
+        X_val_final = scaler.transform(X_val_final)
+        X_test_outer = scaler.transform(X_test_outer)
+        
         print(f"  Training final DNN on outer training set with {len(X_train_final)} train / {len(X_val_final)} val samples")
 
         final_preds = train_dnn(
@@ -348,13 +439,12 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
 
 def nested_cv_regularized_regression(X, y, model_name='lasso_regression', outer_cv=5, inner_cv=3, n_trials=50, search_space=None):
     """Perform nested cross-validation using Optuna for Lasso or Ridge regression."""
+    from sklearn.linear_model import Ridge, Lasso
     if model_name == 'lasso_regression':
-        from model import LassoRegressionModel
-        model_class = LassoRegressionModel
+        model_class = Lasso
         default_alpha_range = [1e-4, 10.0]
     elif model_name == 'ridge_regression':
-        from model import RidgeRegressionModel
-        model_class = RidgeRegressionModel
+        model_class = Ridge
         default_alpha_range = [1e-4, 10000.0]
     else:
         raise ValueError(f"Unsupported model: {model_name}")
@@ -379,8 +469,12 @@ def nested_cv_regularized_regression(X, y, model_name='lasso_regression', outer_
 
         def objective(trial):
             alpha = trial.suggest_float('alpha', search_space['alpha'][0], search_space['alpha'][1], log=True)
-            model = model_class(best_alpha=alpha)
-            scores = cross_val_score(model, X_train_outer, y_train_outer, cv=inner_cv, scoring='r2')
+            model = model_class(alpha=alpha, max_iter=10000, random_state=42)
+            pipeline = Pipeline([
+                ('scaler', StandardScaler()),
+                ('model', model) # Your existing model definition (e.g., XGBRegressor)
+            ])
+            scores = cross_val_score(pipeline, X_train_outer, y_train_outer, cv=inner_cv, scoring='r2')
             mean_score = scores.mean()
             print(f"    Trial {trial.number + 1}/{n_trials} alpha={alpha:.6f}, mean inner R2: {mean_score:.4f}")
             return mean_score
@@ -392,7 +486,7 @@ def nested_cv_regularized_regression(X, y, model_name='lasso_regression', outer_
         best_params = {'alpha': study.best_params['alpha']}
         fold_best_params.append(best_params)
         
-        best_model = model_class(best_alpha=best_params['alpha'])
+        best_model = model_class(alpha=best_params['alpha'], max_iter=10000, random_state=42)
         best_model.fit(X_train_outer, y_train_outer)
         y_pred = best_model.predict(X_test_outer)
         score = r2_score(y_test_outer, y_pred)
@@ -432,7 +526,7 @@ def normal_cv_linear_regression(X, y, cv=5):
 def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, search_space=None):
     """Perform hyperparameter optimization using Optuna for the specified model."""
     if model_name == "xgboost":
-        _, outer_scores, mean_score, std_score, fold_best_params = nested_cv_xgboost(
+        outer_scores, mean_score, std_score, fold_best_params = nested_cv_xgboost(
             X,
             y,
             outer_cv=outer_cv,

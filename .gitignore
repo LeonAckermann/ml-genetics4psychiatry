@@ -1,0 +1,48 @@
+# Data and results - large files that shouldn't be tracked
+data/
+results/
+results_old/
+scripts/
+presentation/
+
+# Virtual environments
+venv/
+env/
+pasteur/
+.venv/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Cache and temporary files
+*.cache
+*.tmp
+.cache/
