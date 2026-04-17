@@ -138,21 +138,17 @@ z_{l,1} & z_{l,2} & \cdots & z_{l,m} & z_{\text{ill},l}
 \toprule
 \textbf{Illness} & \textbf{Full name} & \textbf{SNPs after clumping} & \textbf{$p$-value threshold} \\
 \midrule
-MDD  & Major Depressive Disorder   & 4{,}045 & $<10^{-3}$ \\
-BIP  & Bipolar Disorder            & 4{,}720 & $<10^{-3}$ \\
-SCZ  & Schizophrenia               & 3{,}533 & $<10^{-4}$ \\
-ADHD & Attention Deficit \& Hyperactivity Disorder & 3{,}213 & $<10^{-3}$ \\
-ASD  & Autism Spectrum Disorder    & 2{,}890 & $<10^{-3}$ \\
-OCD  & Obsessive--Compulsive Disorder & 2{,}027 & $<10^{-3}$ \\
+MDD  & Major Depressive Disorder   & 369 & $<10^{-3}$ \\
+BIP  & Bipolar Disorder            & 1071 & $<10^{-3}$ \\
+SCZ  & Schizophrenia               & 1941 & $<10^{-4}$ \\
+ADHD & Attention Deficit \& Hyperactivity Disorder & 578 & $<10^{-3}$ \\
+AZ  & Alzheimer's Disease    & 338 & $<10^{-3}$ \\
+OCD  & Obsessive--Compulsive Disorder & 255 & $<10^{-3}$ \\
 \bottomrule
 \end{tabular}
 \caption{Number of SNPs retained per illness after p-value clumping.}
 \end{table}
 
-\begin{itemize}
-    \item SCZ uses a stricter threshold ($p < 10^{-4}$) because its GWAS has the largest sample size, yielding many significant hits.
-    \item All current experiments target SCZ; other illnesses are planned as extensions.
-\end{itemize}
 \end{frame}
 
 % ============================================================
@@ -326,149 +322,7 @@ Regularisation hyperparameters selected via cross-validated grid search.
 \textbf{Outlook}: The \emph{Regularisation Cocktail} \cite{kadraWelltunedSimpleNets} adds more implicit, structural, data augmentation, and ensemble methods on top of a plain MLP---further avenues for improvement.
 \end{frame}
 
-\begin{frame}{TabPFN -- Bayesian View and PFN Objective}
-\scriptsize
-\textbf{Posterior predictive distribution (PPD):}
-for a test sample $x_{\text{test}}$, the model predicts
-$p(\cdot \mid x_{\text{test}}, D_{\text{train}})$ conditioned on
-$D_{\text{train}} := \{(x_1,y_1),\ldots,(x_n,y_n)\}$.
 
-\medskip
-The Bayesian PPD integrates over hypotheses $\phi \in \Phi$:
-\[
-p(y \mid x, D) \propto \int_{\Phi} p(y \mid x, \phi)\,p(D \mid \phi)\,p(\phi)\,d\phi,
-\qquad \phi \in \Phi
-\]
-
-TabPFN approximates this posterior predictive with a transformer $q_\theta$ trained via
-\[
-\mathcal{L}_{\text{PFN}}=
-\mathbb{E}_{(\{(x_{\text{test}},y_{\text{test}})\}\cup D_{\text{train}})\sim p(D)}
-\left[-\log q_\theta\!\big(y_{\text{test}}\mid x_{\text{test}},D_{\text{train}}\big)\right].
-\]
-
-Data is sampled from the prior predictive process:
-\[
-p(D)=\mathbb{E}_{\phi\sim p(\phi)}\!\big[p(D\mid\phi)\big],
-\qquad
-\phi\sim p(\phi),\; D\sim p(D\mid\phi).
-\]
-
-At inference, we input $\langle D_{\text{train}},x_{\text{test}}\rangle$ and obtain
-\[
-q_\theta\big(y\mid x_{\text{test}},D_{\text{train}}\big)
-\]
-as a single forward-pass approximation of the PPD. Further information can be found in \cite{hollmannTabPFNTransformerThat2023}.
-
-\end{frame}
-
-\begin{frame}{TabPFNv2 - Training and Prior}
-\footnotesize
-\centering
-\begin{figure}
-\includegraphics[width=\linewidth,height=0.3\textheight,keepaspectratio]{./figures/tabpfnv2_training_overview.png}
-\caption{Training Overview \cite{hollmannTabPFNTransformerThat2023}}
-\end{figure}
-\begin{figure}
-    
-\includegraphics[width=\linewidth,height=0.3\textheight,keepaspectratio]{./figures/tabpfnv2_prior.png}
-\caption{Prior Distribution \cite{hollmannTabPFNTransformerThat2023}}
-\end{figure}
-
-\end{frame}
-
-\begin{frame}{TabPFNv2 - Architecture}
-\footnotesize
-\begin{figure}
-\centering
-\includegraphics[width=\linewidth,height=0.58\textheight,keepaspectratio]{./figures/tabpfnv2_architecture.png}
-\caption{Architecture \cite{yeCloserLookTabPFN2025}}
-\end{figure}
-
-\begin{itemize}
-    \item Enables \textbf{in-context learning}: train samples are provided as context at inference.
-    \item Approximates Bayesian inference by directly modeling the posterior predictive distribution (PPD).
-\end{itemize}
-
-
-\end{frame}
-
-
-% ============================================================
-\section{Results}
-% ============================================================
-
-\begin{frame}
-\centering
-\begin{figure}
-    
-
-\includegraphics[width=\linewidth,height=\textheight,keepaspectratio]{../results/combined_r2_boxplot.png}
-\caption{Boxplot of $R^2$ across models, aggregated over 10 seeds (42--51), 80/20 split.}
-\end{figure}
-\end{frame}
-
-\begin{frame}{Results -- Schizophrenia (SCZ)}
-\footnotesize
- \begin{table}
- \centering
- \begin{tabular}{@{}lcc@{}}
- \toprule
- \textbf{Model} & \textbf{Mean $R^{2}$} & \textbf{Mean MSE} \\
- \midrule
- TabPFNv2 finetune & \textbf{0.48}±0.025  & \textbf{11.42} \\
- TabPFNv2          & 0.44±0.026  & 12.49\\
- Residual DNN      & 0.409±0.035          & 13.10 \\
- ElasticNet        & 0.393±0.031          & 13.47 \\
- Ridge             & 0.385±0.027          & 13.64 \\
- Lasso             & 0.382±0.030          & 13.70 \\
- XGBoost           & 0.349±0.029          & 14.45 \\
- Linear Regression & 0.258±0.046          & 16.47 \\
-
-
- \bottomrule
- \end{tabular}
- \caption{Aggregated over 10 seeds (42--51), 80/20 split.}
- \end{table}
-
-
-
-\vspace{0.5em}
-
-\begin{itemize}
-    \item Regularised linear models outperform plain OLS substantially ($+0.12$ $R^{2}$).
-    \item XGBoost under-performs linear baselines---likely due to limited sample size ($\sim$3.5k).
-    \item Neural networks are slighly better than linear models, suggesting some non-linear signal is present?
-    \item TabPFNv2 achieves the best $R^{2}$ so far, suggesting non-linear signal is present.
-\end{itemize}
-\end{frame}
-
-
-
-% ============================================================
-\section{Next Steps}
-% ============================================================
-
-\begin{frame}{Next Steps}
-\begin{enumerate}\setlength\itemsep{6pt}
-    \item \textbf{Data distribution}\\
-        Improve label distribution, represent whole range of z-scores
-
-    \item \textbf{Regularisation Cocktail MLP}\\
-          Systematically search implicit, structural, data augmentation, and ensemble methods \cite{kadraWelltunedSimpleNets}. Will take a while to train, no guarantee of improvement.
-
-    \item \textbf{TabPFNv2 optimization}\\
-          Hyperoptimization, fine-tuning and continued pre-training for TabPFNv2. Inspired by \cite{hollmannAccuratePredictionsSmall2025}. Promising avenue to boost performance.
-
-    \item \textbf{TabPFNv2 Explainability}\\
-          Use SHAP values to identify which MRI features drive predictions; compare with known biology. Create causal graphs of feature importance.
-
-    \item \textbf{Graph Neural Network}\\
-          Treat brain regions as nodes with MRI features; edge definition TBD (spatial adjacency, functional connectivity, or learned).
-
-
-\end{enumerate}
-\end{frame}
 
 % ============================================================
 % References

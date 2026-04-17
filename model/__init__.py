@@ -1,6 +1,6 @@
 """Model package."""
 
-from .DNN import BaselineModel, DNN, ResidualDNN  # noqa: F401
+from .DNN import BaselineModel, DNN, ResidualDNN, MDN  # noqa: F401
 from .NeuralPreconditionedLR import (  # noqa: F401
 	NeuralPreconditionedLinearRegression,
 )

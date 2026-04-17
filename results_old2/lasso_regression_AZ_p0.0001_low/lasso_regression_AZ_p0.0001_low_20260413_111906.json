@@ -1,0 +1,99 @@
+{
+  "hpo": {
+    "outer_scores": [
+      -0.013333797454833984,
+      -0.000286102294921875,
+      -0.38283002376556396,
+      0.013596892356872559,
+      -0.30754196643829346
+    ],
+    "mean_r2": -0.13807899951934816,
+    "std_r2": 0.17098221262260474,
+    "fold_best_params": [
+      {
+        "alpha": 3.3252300093563174
+      },
+      {
+        "alpha": 95.50972394301981
+      },
+      {
+        "alpha": 0.023835163821635082
+      },
+      {
+        "alpha": 1.534144955294729
+      },
+      {
+        "alpha": 0.0015155001378094727
+      }
+    ],
+    "search_space": {
+      "alpha": [
+        1e-05,
+        100
+      ]
+    }
+  },
+  "experiment": "lasso_regression_AZ_p0.0001_low",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ",
+        "BIP",
+        "AZ",
+        "ADHD",
+        "OCD",
+        "MDD"
+      ],
+      "p_clump": [
+        0.0001,
+        0.001,
+        0.01,
+        0.1
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "lasso_regression"
+    },
+    "hpo": {
+      "run": true,
+      "n_trials": 2,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "alpha": [
+          1e-05,
+          100
+        ]
+      }
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260413_111906"
+}

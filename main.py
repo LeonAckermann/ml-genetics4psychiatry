@@ -33,6 +33,48 @@ from torch.utils.data import DataLoader
 
 from optuna.samplers import TPESampler
 import xgboost as xgb
+from scipy.stats import pearsonr, spearmanr
+
+import matplotlib.pyplot as plt
+
+
+# Custom JSON encoder to handle numpy types
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (np.floating, np.integer)):
+            return float(obj) if isinstance(obj, np.floating) else int(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+
+def load_best_params_from_folder(illness, p_clump, distribution, model_name, best_params_folder="best_params"):
+    """Load best fold parameters from a results file based on illness, p_clump, and distribution."""
+    import glob
+
+    # Construct the expected folder/file pattern
+    pattern = f"{best_params_folder}/**/{model_name}_{illness}_p{p_clump}_{distribution}*.json"
+    files = glob.glob(pattern, recursive=True)
+
+    if not files:
+        return None
+
+    # Use the most recent file if multiple exist
+    files = sorted(files)
+    latest_file = files[-1]
+
+    print(f"Loading best params from {latest_file}")
+
+    with open(latest_file) as f:
+        data = json.load(f)
+
+    if 'hpo' in data and 'fold_best_params' in data['hpo']:
+        return data['hpo']['fold_best_params']
+    else:
+        raise ValueError(f"No fold_best_params found in {latest_file}")
+
+
+# Custom JSON encoder to handle numpy types
 
 
 # ---------------------------------------------------------------------------
@@ -276,8 +318,11 @@ def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=No
     return outer_scores, mean_score, std_score, fold_best_params
 
 
-def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_trials=50, search_space=None, val_size=0.1):
-    """Perform nested cross-validation using Optuna for DNN or ResidualDNN."""
+def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_trials=50, search_space=None, val_size=0.1, best_params_list=None):
+    """Perform nested cross-validation using Optuna for DNN or ResidualDNN.
+
+    If best_params_list is provided, skip HPO and use those params directly.
+    """
     from model import DNN, ResidualDNN
 
     if model_name == 'dnn':
@@ -301,12 +346,175 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
 
     X_arr = np.asarray(X, dtype=np.float32)
     y_arr = np.asarray(y, dtype=np.float32)
+
+    print(f"Initial dataset shape: X={X_arr.shape}, y={y_arr.shape}")
+
+    # remove outliers
+    #Q1 = np.percentile(y_arr, 25)
+    #Q3 = np.percentile(y_arr, 75)
+    #IQR = Q3 - Q1
+    #lower_bound = Q1 - 1.5 * IQR
+    #upper_bound = Q3 + 1.5 * IQR
+    #outlier_idx = np.where((y_arr < lower_bound) | (y_arr > upper_bound))[0]
+    #X_arr = np.delete(X_arr, outlier_idx, axis=0)
+    #y_arr = np.delete(y_arr, outlier_idx, axis=0)
+    #print(f"Removed {len(outlier_idx)} outliers from the dataset based on IQR")
+
+    for i in range(X_arr.shape[1]):
+        X_arr[:, i] = np.where(y_arr.flatten() < 0, -X_arr[:, i], X_arr[:, i])
+    # also change the label to positive for those samples
+
+
+    y_arr = np.where(y_arr.flatten() < 0, -y_arr.flatten(), y_arr.flatten()).reshape(-1, 1).squeeze()  # make sure y is a column vector after transformation
+    print("Transformed dataset shape after inverting features for negative labels: X={}, y={}".format(X_arr.shape, y_arr.shape))    
+
     outer_kfold = KFold(n_splits=outer_cv, shuffle=True, random_state=42)
     outer_scores = []
+    pearson_r2_scores = []
+    spearman_rank_scores = []
     fold_best_params = []
 
     optuna.logging.set_verbosity(optuna.logging.INFO)
 
+    # If best_params_list is provided, skip HPO
+    if best_params_list is not None:
+        print(f"Using pre-loaded best parameters ({len(best_params_list)} folds), skipping HPO")
+
+        for fold, (train_idx, test_idx) in enumerate(outer_kfold.split(X_arr)):
+            print(f"--- Evaluating Outer Fold {fold + 1}/{outer_cv} ---")
+            X_train_outer, X_test_outer = X_arr[train_idx], X_arr[test_idx]
+            y_train_outer, y_test_outer = y_arr[train_idx], y_arr[test_idx]
+
+            X_train_outer, X_val_outer, y_train_outer, y_val_outer = train_test_split(
+            X_train_outer,
+            y_train_outer,
+            test_size=val_size,
+            random_state=42,
+            )
+
+            # balance the training set to have equal number of samples with y<0 and y>=0
+            #train_negative_idx = np.where(y_train_outer < 0)[0]
+            #train_positive_idx = np.where(y_train_outer >= 0)[0]
+            #n_samples_per_class = min(len(train_negative_idx), len(train_positive_idx))
+            #selected_negative_idx = np.random.choice(train_negative_idx, n_samples_per_class, replace=False)
+            #selected_positive_idx = np.random.choice(train_positive_idx, n_samples_per_class, replace=False)
+            #selected_idx = np.concatenate([selected_negative_idx, selected_positive_idx])
+            #X_train_outer = X_train_outer[selected_idx]
+            #y_train_outer = y_train_outer[selected_idx]
+            ## print the class distribution after balancing
+            #print(f"  Training set class distribution after balancing: y<0: {np.sum(y_train_outer < 0)}, y>=0: {np.sum(y_train_outer >= 0)}")
+#
+            ## balance the test set to have equal number of samples with y<0 and y>=0
+            #test_negative_idx = np.where(y_test_outer < 0)[0]
+            #test_positive_idx = np.where(y_test_outer >= 0)[0]
+            #n_samples_per_class = min(len(test_negative_idx), len(test_positive_idx))
+            #selected_negative_idx = np.random.choice(test_negative_idx, n_samples_per_class, replace=False)
+            #selected_positive_idx = np.random.choice(test_positive_idx, n_samples_per_class, replace=False)
+            #selected_idx = np.concatenate([selected_negative_idx, selected_positive_idx])
+            #X_test_outer = X_test_outer[selected_idx]
+            #y_test_outer = y_test_outer[selected_idx]
+            ## print the class distribution after balancing
+            #print(f"  Test set class distribution after balancing: y<0: {np.sum(y_test_outer < 0)}, y>=0: {np.sum(y_test_outer >= 0)}") 
+
+            
+
+            # Get params for this fold
+            best_params = best_params_list[fold]
+            print(f"  Using params: {best_params}")
+
+            # Build model config from params
+            hidden_dims = [int(best_params['hidden_dim'])] * int(best_params['n_layers'])
+            final_model_cfg = {
+                'class': model_class,
+                'hidden_dims': hidden_dims,
+                'output_dim': 1,
+                'dropout': best_params.get('dropout', None),
+                'lr': best_params.get('learning_rate', 1e-3),
+                'epochs': int(best_params.get('epochs', 30)),
+                'batch_size': int(best_params.get('batch_size', 32)),
+                'patience': int(best_params.get('patience', 20)),
+                'seed': 42,
+            }
+
+            # Skip validation split - train on full training set, evaluate on test
+            print(f"  Training on {len(X_train_outer)} samples, evaluating on {len(X_test_outer)} test samples")
+
+            final_preds = train_dnn(
+                final_model_cfg,
+                X_train_outer,
+                y_train_outer,
+                X_val_outer,
+                y_val_outer,
+                X_test_outer,
+                y_test_outer,
+                {'verbose': False},
+            )
+
+            #final_preds = (final_preds - np.mean(final_preds)) / np.std(final_preds) * np.std(y_test_outer) + np.mean(y_test_outer)  # scale preds to have same mean and std as true values for fair evaluation
+            score = r2_score(y_test_outer, final_preds)
+
+            # Calculate Pearson correlation
+            pearson_r, pearson_p = pearsonr(y_test_outer, final_preds)
+            pearson_r2 = pearson_r ** 2
+
+            # Calculate Spearman rank correlation
+            spearman_rho, spearman_p = spearmanr(y_test_outer, final_preds)
+
+            outer_scores.append(score)
+            pearson_r2_scores.append([pearson_r2, pearson_p])
+            spearman_rank_scores.append([spearman_rho ** 2, spearman_p])
+            fold_best_params.append(best_params)
+
+            # plot residual distribution and true vs. predicted values for this fold
+            residuals = y_test_outer - final_preds
+            #plt.hist(residuals, bins=30, alpha=0.7, label='Residuals')
+            #plt.xlabel('Residual')
+            #plt.ylabel('Frequency')
+            #plt.title(f'Residual Distribution - Fold {fold + 1}')
+            #plt.legend()
+            #plt.show()
+#
+            ## plot true vs. predicted values for this fold
+            #plt.scatter(y_test_outer, final_preds, alpha=0.7)
+            #plt.xlabel('True Values')
+            #plt.ylabel('Predicted Values')
+            #plt.title(f'True vs. Predicted - Fold {fold + 1}')
+            #plt.plot([y_test_outer.min(), y_test_outer.max()], [y_test_outer.min(), y_test_outer.max()], 'r--', lw=2)
+            #plt.show()
+#
+            ## plot residuals as scatter plot against true values for this fold
+            #plt.scatter(final_preds, residuals, alpha=0.7)
+            #plt.xlabel('Predicted Values')
+            #plt.ylabel('Residuals')
+            #plt.title(f'Linear Regression - Residuals vs. Predicted Values - Fold {fold + 1}')
+            #plt.axhline(0, color='r', linestyle='--')
+            #plt.show()
+
+            print(f"  Fold {fold + 1} R² Score: {score:.4f}")
+            print(f"  Fold {fold + 1} Pearson r²: {pearson_r2:.4f}")
+            print(f"  Fold {fold + 1} Pearson p-value: {pearson_p:.4e}")
+            print(f"  Fold {fold + 1} Spearman rank: {spearman_rho ** 2:.4f}")
+            print(f"  Fold {fold + 1} Spearman p-value: {spearman_p:.4e}\n")
+            #print standard deviation of preds, true values, and residuals for this fold
+            print(f"  Fold {fold + 1} Preds std: {np.std(final_preds):.4f}, True std: {np.std(y_test_outer):.4f}, Residuals std: {np.std(residuals):.4f}")  
+
+
+        mean_score = np.mean(outer_scores[:][0])
+        std_score = np.std(outer_scores[:][0])
+        mean_pearson_r2 = np.mean(pearson_r2_scores[:][0])
+        std_pearson_r2 = np.std(pearson_r2_scores[:][0])
+        mean_spearman_rank = np.mean(spearman_rank_scores[:][0])
+        std_spearman_rank = np.std(spearman_rank_scores[:][0])
+        print("=== Evaluation Results ===")
+        print(f"Average R²: {mean_score:.4f} (+/- {std_score:.4f})")
+        print(f"Average Pearson r²: {mean_pearson_r2:.4f} (+/- {std_pearson_r2:.4f})")
+        print(f"Average Pearson p-value: {np.mean(pearson_r2_scores[:][1]):.4e} (+/- {np.std(pearson_r2_scores[:][1]):.4e})")
+        print(f"Average Spearman rank: {mean_spearman_rank:.4f} (+/- {std_spearman_rank:.4f})")
+        print(f"Average Spearman p-value: {np.mean(spearman_rank_scores[:][1]):.4e} (+/- {np.std(spearman_rank_scores[:][1]):.4e})")
+
+        return outer_scores, pearson_r2_scores, spearman_rank_scores, fold_best_params
+
+    # Original HPO logic below
     for fold, (train_idx, test_idx) in enumerate(outer_kfold.split(X_arr)):
         print(f"--- Starting Outer Fold {fold + 1}/{outer_cv} ---")
         X_train_outer, X_test_outer = X_arr[train_idx], X_arr[test_idx]
@@ -429,15 +637,22 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
         )
         score = r2_score(y_test_outer, final_preds)
         outer_scores.append(score)
+        pearson_r, _ = pearsonr(y_test_outer, final_preds)
+        pearson_r2 = pearson_r ** 2
+        pearson_r2_scores.append(pearson_r2)
         print(f"Outer Fold {fold + 1} R2 Score: {score:.4f}")
         print(f"Best Params for Fold {fold + 1}: {best_params}\n")
 
     mean_score = np.mean(outer_scores)
     std_score = np.std(outer_scores)
+    mean_pearson_r2 = np.mean(pearson_r2_scores)
+    std_pearson_r2 = np.std(pearson_r2_scores)
+
     print("=== Final Nested CV Results ===")
     print(f"Average R2: {mean_score:.4f} (+/- {std_score:.4f})")
+    print(f"Average Pearson r²: {mean_pearson_r2:.4f} (+/- {std_pearson_r2:.4f})")
 
-    return outer_scores, mean_score, std_score, fold_best_params
+    return outer_scores, pearson_r2_scores, fold_best_params
 
 
 def nested_cv_regularized_regression(X, y, model_name='lasso_regression', outer_cv=5, inner_cv=3, n_trials=50, search_space=None):
@@ -513,25 +728,150 @@ def normal_cv_linear_regression(X, y, cv=5):
     X_arr = np.asarray(X, dtype=np.float32)
     y_arr = np.asarray(y, dtype=np.float32)
     
+    # remove outliers
+    Q1 = np.percentile(y_arr, 25)
+    Q3 = np.percentile(y_arr, 75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    outlier_idx = np.where((y_arr < lower_bound) | (y_arr > upper_bound))[0]
+    #X_arr = np.delete(X_arr, outlier_idx, axis=0)
+    #y_arr = np.delete(y_arr, outlier_idx, axis=0)
+
+    # print the number of samples removed as outliers    
+    print(f"Removed {len(outlier_idx)} outliers from the dataset based on IQR")
+
     model = LinearRegression()
     pipeline = Pipeline([
         ('scaler', StandardScaler()),
         ('model', model)
     ])
-    scores = cross_val_score(pipeline, X_arr, y_arr, cv=cv, scoring='r2')
+
+    r2_scores = []
+    pearson_r2_scores = []
+    pearson_p_values = []
+    spearman_rank_scores = []
+    spearman_p_values = []
+    outer_kfold = KFold(n_splits=cv, shuffle=True, random_state=42)
+
+    for fold, (train_idx, test_idx) in enumerate(outer_kfold.split(X_arr)):
+        print(f"--- Starting Outer Fold {fold + 1}/{cv} ---")
+        X_train_outer, X_test_outer = X_arr[train_idx], X_arr[test_idx]
+        y_train_outer, y_test_outer = y_arr[train_idx], y_arr[test_idx]
+
+        # remove 
+        scaler = StandardScaler()
+        X_train_outer = scaler.fit_transform(X_train_outer)
+        X_test_outer = scaler.transform(X_test_outer)
+
+        #y_scaler = StandardScaler()
+        #y_train_outer = y_scaler.fit_transform(y_train_outer.reshape(-1, 1)).flatten()
+        #y_test_outer = y_scaler.transform(y_test_outer.reshape(-1, 1)).flatten()
+
+        # balance the training set to have equal number of samples with y<0 and y>=0
+        train_negative_idx = np.where(y_train_outer < 0)[0]
+        train_positive_idx = np.where(y_train_outer >= 0)[0]
+        n_samples_per_class = min(len(train_negative_idx), len(train_positive_idx))
+        selected_negative_idx = np.random.choice(train_negative_idx, n_samples_per_class, replace=False)
+        selected_positive_idx = np.random.choice(train_positive_idx, n_samples_per_class, replace=False)
+        selected_idx = np.concatenate([selected_negative_idx, selected_positive_idx])
+        X_train_outer = X_train_outer[selected_idx]
+        y_train_outer = y_train_outer[selected_idx]
+        # print the class distribution after balancing
+        print(f"  Training set class distribution after balancing: y<0: {np.sum(y_train_outer < 0)}, y>=0: {np.sum(y_train_outer >= 0)}")
+
+        # balance the test set to have equal number of samples with y<0 and y>=0
+        test_negative_idx = np.where(y_test_outer < 0)[0]
+        test_positive_idx = np.where(y_test_outer >= 0)[0]
+        n_samples_per_class = min(len(test_negative_idx), len(test_positive_idx))
+        selected_negative_idx = np.random.choice(test_negative_idx, n_samples_per_class, replace=False)
+        selected_positive_idx = np.random.choice(test_positive_idx, n_samples_per_class, replace=False)
+        selected_idx = np.concatenate([selected_negative_idx, selected_positive_idx])
+        X_test_outer = X_test_outer[selected_idx]
+        y_test_outer = y_test_outer[selected_idx]
+        # print the class distribution after balancing
+        print(f"  Test set class distribution after balancing: y<0: {np.sum(y_test_outer < 0)}, y>=0: {np.sum(y_test_outer >= 0)}") 
+
+        model.fit(X_train_outer, y_train_outer)
+        y_pred = model.predict(X_test_outer)
+        #y_pred = (y_pred - np.mean(y_pred)) / np.std(y_pred) * np.std(y_test_outer) + np.mean(y_test_outer)  # scale preds to have same mean and std as true values for fair evaluation
+
+        # print standard deviation of preds, true values, and residuals for this fold
+        residuals = y_test_outer - y_pred
+        print(f"  Fold {fold + 1} Preds std: {np.std(y_pred):.4f}, True std: {np.std(y_test_outer):.4f}, Residuals std: {np.std(residuals):.4f}")
+        r2 = r2_score(y_test_outer, y_pred)
+        r2_scores.append(r2)
+        #adjusted_r2 = 1 - ((1 - r2) * (len(y_test_outer) - 1) / (len(y_test_outer) - X_train_outer.shape[1] - 1))
+
+        pearson_r2, pearson_p = pearsonr(y_test_outer, y_pred)
+        pearson_r2 = pearson_r2 ** 2
+        pearson_r2_scores.append(pearson_r2)
+        pearson_p_values.append(pearson_p)
+
+        spearman_rho, spearman_p = spearmanr(y_test_outer, y_pred)
+        spearman_rank_scores.append(spearman_rho ** 2)
+        spearman_p_values.append(spearman_p)
+
+        # plot the true vs. predicted values for this fold
+        #plt.scatter(y_test_outer, y_pred, alpha=0.7)
+        #plt.xlabel('True Values')
+        #plt.ylabel('Predicted Values')
+        #plt.title(f'Linear Regression - True vs. Predicted - Fold {fold + 1}')
+        #plt.plot([y_test_outer.min(), y_test_outer.max()], [y_test_outer.min(), y_test_outer.max()], 'r--', lw=2)
+        #plt.show()      
+#
+        ## show the residual distribution for this fold
+        #residuals = y_test_outer - y_pred
+        #plt.hist(residuals, bins=30, alpha=0.7, label='Residuals')
+        #plt.xlabel('Residual')
+        #plt.ylabel('Frequency')
+        #plt.title(f'Linear Regression - Residual Distribution - Fold {fold + 1}')
+        #plt.legend()
+        #plt.show()
+#
+        ## plot residuals as scatter plot against true values for this fold
+        #plt.scatter(y_pred, residuals, alpha=0.7)
+        #plt.xlabel('Predicted Values')
+        #plt.ylabel('Residuals')
+        #plt.title(f'Linear Regression - Residuals vs. Predicted Values - Fold {fold + 1}')
+        #plt.axhline(0, color='r', linestyle='--')
+        #plt.show()
+#
+        # print the metrics
+        print(f"  Fold {fold + 1} R² Score: {r2:.4f}")
+        #print(f"  Fold {fold + 1} Adjusted R²: {adjusted_r2:.4f}")
+        print(f"  Fold {fold + 1} Pearson r²: {pearson_r2:.4f}")
+        print(f"  Fold {fold + 1} Pearson p-value: {pearson_p:.4e}")
+        print(f"  Fold {fold +  1} Spearman rank: {spearman_rho ** 2:.4f}")
+        print(f"  Fold {fold + 1} Spearman p-value: {spearman_p:.4e}\n")
+
+
+
+    mean_score_r2 = np.mean(r2_scores)
+    std_score_r2 = np.std(r2_scores)
+    mean_score_pearson_r2 = np.mean(pearson_r2_scores)
+    std_score_pearson_r2 = np.std(pearson_r2_scores)
+    mean_score_spearman_rank = np.mean(spearman_rank_scores)
+    std_score_spearman_rank = np.std(spearman_rank_scores)
+
     
-    mean_score = scores.mean()
-    std_score = scores.std()
-    
+
     print("=== Linear Regression CV Results ===")
-    print(f"Fold Scores: {scores}")
-    print(f"Average R2: {mean_score:.4f} (+/- {std_score:.4f})")
-    
-    return scores, mean_score, std_score
+    print(f"Fold Scores: {r2_scores}")
+    print(f"Average R2: {mean_score_r2:.4f} (+/- {std_score_r2:.4f})")
+    print(f"Average Pearson R2: {mean_score_pearson_r2:.4f} (+/- {std_score_pearson_r2:.4f})")
+    print(f"Average Spearman Rank: {mean_score_spearman_rank:.4f} (+/- {std_score_spearman_rank:.4f})")
+    print(f"Average Pearson p-value: {np.mean(pearson_p_values):.4e}")
+    print(f"Average Spearman p-value: {np.mean(spearman_p_values):.4e}")
+
+    return r2_scores, pearson_r2_scores, spearman_rank_scores
 
 
-def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, search_space=None):
-    """Perform hyperparameter optimization using Optuna for the specified model."""
+def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, search_space=None, best_params_list=None):
+    """Perform hyperparameter optimization using Optuna for the specified model.
+
+    If best_params_list is provided, skip HPO and use those params directly.
+    """
     if model_name == "xgboost":
         outer_scores, mean_score, std_score, fold_best_params = nested_cv_xgboost(
             X,
@@ -549,7 +889,7 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             'search_space': search_space,
         }
     elif model_name in ["dnn", "residual_dnn"]:
-        outer_scores, mean_score, std_score, fold_best_params = nested_cv_dnn(
+        outer_scores, pearson_r2_scores, spearman_rank_scores, fold_best_params = nested_cv_dnn(
             X,
             y,
             model_name=model_name,
@@ -558,11 +898,18 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             n_trials=n_trials,
             search_space=search_space,
             val_size=0.1,
+            best_params_list=best_params_list,
         )
         return {
-            'outer_scores': outer_scores,
-            'mean_r2': mean_score,
-            'std_r2': std_score,
+            'r2_scores': outer_scores,
+            "mean_r2": np.mean(outer_scores),
+            "std_r2": np.std(outer_scores),
+            'pearson_r2_scores': pearson_r2_scores,
+            "mean_pearson_r2": np.mean(pearson_r2_scores),
+            "std_pearson_r2": np.std(pearson_r2_scores),
+            'spearman_rank_scores': spearman_rank_scores,
+            "mean_spearman_rank": np.mean(spearman_rank_scores),
+            "std_spearman_rank": np.std(spearman_rank_scores),
             'fold_best_params': fold_best_params,
             'search_space': search_space,
         }
@@ -580,19 +927,28 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             'outer_scores': outer_scores,
             'mean_r2': mean_score,
             'std_r2': std_score,
+            'mean_pearson_r2': np.mean([results['pearson_r2'] for results in fold_best_params]),
             'fold_best_params': fold_best_params,
             'search_space': search_space,
         }
     elif model_name == "linear_regression":
-        scores, mean_score, std_score = normal_cv_linear_regression(
+        r2_scores, pearson_r2_scores, spearman_rank_scores = normal_cv_linear_regression(
             X,
             y,
             cv=outer_cv,
         )
         return {
-            'cv_scores': scores.tolist(),
-            'mean_r2': float(mean_score),
-            'std_r2': float(std_score),
+            'r2_scores': r2_scores,
+            'mean_r2': float(np.mean(r2_scores)),
+            'std_r2': float(np.std(r2_scores)),
+            "pearson_r2_scores": pearson_r2_scores,
+            'mean_pearson_r2': float(np.mean(pearson_r2_scores)),
+            "std_pearson_r2": float(np.std(pearson_r2_scores)),
+            "spearman_rank_scores": spearman_rank_scores,
+            'mean_spearman_rank': float(np.mean(spearman_rank_scores)),
+            "std_spearman_rank": float(np.std(spearman_rank_scores)),
+            'fold_best_params': [],
+            'search_space': None,
         }
     else:
         raise ValueError(f"Hyperparameter search not implemented for model: {model_name}")
@@ -730,6 +1086,9 @@ def evaluate(y_test, preds, cfg):
     if "r2" in metric_names:
         results["r2"] = float(r2_score(y_test, preds))
         print(f"  R² Score:    {results['r2']:.4f}")
+    if "pearson_r2" in metric_names:
+        results["pearson_r2"] = float(pearsonr(y_test, preds)[0])**2
+        print(f"  Pearson R²:  {results['pearson_r2']:.4f}")
     if "mse" in metric_names:
         results["mse"] = float(mean_squared_error(y_test, preds))
         print(f"  MSE:         {results['mse']:.4f}")
@@ -777,6 +1136,8 @@ def evaluate(y_test, preds, cfg):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run ML genetics experiments from a YAML config")
     parser.add_argument("--config", type=str, required=True, help="Path to experiment YAML file")
+    parser.add_argument("--load-best-params", type=str, default=None,
+                        help="Path to HPO result JSON file to load best fold parameters from (skips HPO)")
     return parser.parse_args()
 
 
@@ -812,7 +1173,8 @@ def main() -> None:
             output_path=construct_cfg["output_path"],
             chunk_size=construct_cfg.get("chunk_size", 10000),
             total_chunks=construct_cfg.get("total_chunks", None),
-            polars=construct_cfg.get("polars", False)
+            polars=construct_cfg.get("polars", False),
+            value=construct_cfg.get("value", "T_STAT"),
         )
         print("Done constructing GWAS MRI file.")
         output["gwas_mri_stats"] = stats
@@ -855,6 +1217,9 @@ def main() -> None:
     # Hyperparameter search block only runs when HPO is enabled in the experiment YAML.
     hpo_enabled = False
     hpo_cfg = {}
+    load_best_params_file = args.load_best_params
+    load_best_params_from_config = cfg.get("load_best_params", False)
+
     if cfg.get("hpo") is True:
         hpo_enabled = True
     elif isinstance(cfg.get("hpo"), dict):
@@ -862,10 +1227,18 @@ def main() -> None:
         if hpo_cfg.get("run", True) is not False:
             hpo_enabled = True
 
-    if hpo_enabled:
-        print("HPO configuration detected. Nested HPO search will run during each experiment.")
+    # If loading best params from config, still enable HPO flag to run the evaluation
+    if load_best_params_from_config:
+        print("load_best_params: true - Will load and use pre-trained parameters")
+        hpo_enabled = True  # Enable to run the evaluation loop
 
-    if cfg["experiment"].get("run", True) or hpo_enabled:
+    if hpo_enabled:
+        if load_best_params_from_config or load_best_params_file:
+            print("HPO will use pre-loaded parameters (skipping optimization).")
+        else:
+            print("HPO configuration detected. Nested HPO search will run during each experiment.")
+
+    if cfg["experiment"].get("run", True) or hpo_enabled or load_best_params_file:
 
     
         # construct data dict based on data_cfg distribution, p_clump, and illness, this could be multiple runs
@@ -902,6 +1275,35 @@ def main() -> None:
             print(f"Loaded data for {illness}: {df.shape[0]} samples, {df.shape[1]} features")
 
             hpo_results = None
+            best_params_for_eval = None
+
+            # Try to load best params from folder if config says so
+            if load_best_params_from_config and cfg["model"]["name"] in ["dnn", "residual_dnn"]:
+                try:
+                    best_params_for_eval = load_best_params_from_folder(
+                        illness=illness,
+                        p_clump=p,
+                        distribution=dist,
+                        model_name=cfg["model"]["name"],
+                        best_params_folder="best_params"
+                    )
+                    if best_params_for_eval:
+                        print(f"Loaded {len(best_params_for_eval)} pre-trained fold parameters from best_params folder")
+                except Exception as e:
+                    print(f"Could not load pre-trained params: {e}")
+                    best_params_for_eval = None
+
+            if load_best_params_file:
+                # Load best params from command-line specified file
+                print(f"Loading best fold parameters from {load_best_params_file}...")
+                with open(load_best_params_file) as f:
+                    loaded_data = json.load(f)
+                if 'hpo' in loaded_data and 'fold_best_params' in loaded_data['hpo']:
+                    best_params_for_eval = loaded_data['hpo']['fold_best_params']
+                    print(f"Loaded {len(best_params_for_eval)} fold parameters from file")
+                else:
+                    raise ValueError(f"No fold_best_params found in {load_best_params_file}")
+
             if hpo_enabled and cfg["model"]["name"] in ["xgboost", "dnn", "residual_dnn", "lasso_regression", "ridge_regression", "linear_regression"]:
                 print(f"Running nested CV HPO for experiment {experiment_name}...")
                 df_pandas = df.to_pandas() if hasattr(df, "to_pandas") else df
@@ -916,6 +1318,7 @@ def main() -> None:
                     outer_cv=hpo_cfg.get("outer_cv", 5),
                     inner_cv=hpo_cfg.get("inner_cv", 3),
                     search_space=hpo_cfg.get("search_space"),
+                    best_params_list=best_params_for_eval,
                 )
                 output["hpo"] = hpo_results
 
@@ -969,7 +1372,7 @@ def main() -> None:
                 output["aggregated"] = aggregated_metrics
 
                 with open(results_file, "w") as f:
-                    json.dump(output, f, indent=2)
+                    json.dump(output, f, indent=2, cls=NumpyEncoder)
                     written = True
 
                 print(f"\nResults saved to {results_file}")
@@ -978,7 +1381,7 @@ def main() -> None:
                 output["config"] = cfg
                 output["timestamp"] = timestamp
                 with open(results_file, "w") as f:
-                    json.dump(output, f, indent=2)
+                    json.dump(output, f, indent=2, cls=NumpyEncoder)
                     written = True
 
                 print(f"\nHPO-only results saved to {results_file}")
@@ -991,7 +1394,7 @@ def main() -> None:
 
     if not written and results_file is not None:
         with open(results_file, "w") as f:
-            json.dump(output, f, indent=2)
+            json.dump(output, f, indent=2, cls=NumpyEncoder)
         print(f"Results saved to {results_file}")
     elif results_file is None:
         print("No results file was created because no experiment or HPO run was enabled.")

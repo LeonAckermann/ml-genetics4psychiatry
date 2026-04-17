@@ -1,14 +1,13 @@
 # Fdb version 4
-["biber presentation"] 1773739772.83906 "presentation.bcf" "presentation.bbl" "presentation" 1773739863.30707 0
-  "bibliography.bib" 1773678164.1149 152817 5a288b915dec00de18b7d024ffaad5ff ""
-  "presentation.bcf" 1773739863.17545 108429 32c2819f4d159108372972e468c9e6c9 "pdflatex"
+["biber presentation"] 1776350005.28877 "presentation.bcf" "presentation.bbl" "presentation" 1776350125.3704 0
+  "bibliography.bib" 1774526994.77013 152817 5a288b915dec00de18b7d024ffaad5ff ""
+  "presentation.bcf" 1776350125.24456 107913 eeb3adecf654c2e9792ee476ef63484c "pdflatex"
   (generated)
   "presentation.bbl"
   "presentation.blg"
   (rewritten before read)
-["pdflatex"] 1773739860.39135 "/Users/leonackermann/Library/CloudStorage/GoogleDrive-leonmax.ackermann@googlemail.com/My Drive/Uni/Master/4/MasterThesis/ml-genetics4psychiatry/presentation/presentation.tex" "presentation.pdf" "presentation" 1773739863.3074 0
-  "../results/combined_r2_boxplot.png" 1773656315.0084 125902 ccef08775ec5bcc6532a959e77d3bd84 ""
-  "/Users/leonackermann/Library/CloudStorage/GoogleDrive-leonmax.ackermann@googlemail.com/My Drive/Uni/Master/4/MasterThesis/ml-genetics4psychiatry/presentation/presentation.tex" 1773739860.11129 16089 1b456daae8c0c78c84b25f59eb0428a4 ""
+["pdflatex"] 1776350123.76847 "/Users/leonackermann/Desktop/on_device/ml-genetics4psychiatry/presentation/presentation.tex" "presentation.pdf" "presentation" 1776350125.37072 0
+  "/Users/leonackermann/Desktop/on_device/ml-genetics4psychiatry/presentation/presentation.tex" 1776350123.53411 10779 9767d674199b4d50d8ec60e99736776d ""
   "/usr/local/texlive/2024/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc" 1136849721 2900 1537cc8184ad1792082cd229ecc269f4 ""
   "/usr/local/texlive/2024/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/local/texlive/2024/texmf-dist/fonts/tfm/jknappen/ec/tcss0800.tfm" 1136768653 1536 16418351df4369b7cef8f784ccb87a85 ""
@@ -67,9 +66,7 @@
   "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb" 1248133631 32626 4f5c1b83753b1dd3a97d1b399a005b4b ""
   "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt8.pfb" 1248133631 24287 6b803fa9eb1ddff9112e00519b09dd9e ""
   "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt9.pfb" 1248133631 29078 718ea4567ceff944262b0f5b0800e1d9 ""
-  "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cmextra/cmex7.pfb" 1248133631 30457 bc0868ebece724ed7c3d37e3d9bff7bd ""
   "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb" 1248133631 34694 ad62b13721ee8eda1dcc8993c8bd7041 ""
-  "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm7.pfb" 1248133631 35309 940e81a5b9e04201a07e8b33a3ae6e64 ""
   "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/cm-super/sfss0800.pfb" 1215737283 95441 e322369dec2b43bb317c506a4a44deaa ""
   "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/cm-super/sfss1000.pfb" 1215737283 94269 4665f0d253cc3cca9439f89dbf2b9f33 ""
   "/usr/local/texlive/2024/texmf-dist/tex/context/base/mkii/supp-pdf.mkii" 1461363279 71627 94eb9990bed73c364d7f53f960cc8c5b ""
@@ -275,16 +272,13 @@
   "/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1735215692.27311 5467645 128b85b7cde5f5edc5cb7f1dd7ff8736 ""
   "/usr/local/texlive/2024/texmf-var/web2c/pdftex/pdflatex.fmt" 1735215666 8221434 e9b173ed8ca95613b2feb8617fd2aff6 ""
   "/usr/local/texlive/2024/texmf.cnf" 1710266656 577 e590dabc9e28c5b61546e15f63eebcdf ""
-  "figures/data_distribution.png" 1773331639.81104 69602 569c77f46127956c042ea2cb7ce4a49c ""
-  "figures/tabpfnv2_architecture.png" 1773677438.84819 214521 99b83142db3f58f8b964ba2f80caf260 ""
-  "figures/tabpfnv2_prior.png" 1773677493.65275 168003 08ca7fed728a7b1f15e9c6c676bd2fcc ""
-  "figures/tabpfnv2_training_overview.png" 1773677479.45629 176680 1cd7cfedb831e084d20ab1d87e7963ae ""
-  "presentation.aux" 1773739863.17252 7658 f9be325302d30bdea04be3e380c8e4ca "pdflatex"
-  "presentation.bbl" 1773739774.86815 31128 73b9edba9e4f9c10d3f1411f6ce57ebb "biber presentation"
-  "presentation.nav" 1773739863.17693 3424 c0132da19941c71d4cc4a8d93ace56f4 "pdflatex"
-  "presentation.out" 1773739863.17422 578 9fbb41f3a0e622d0ce6def9f7899e8aa "pdflatex"
-  "presentation.run.xml" 1773739863.17683 2460 72819a7388c0758315168f6b20b7750e "pdflatex"
-  "presentation.tex" 1773739860.11129 16089 1b456daae8c0c78c84b25f59eb0428a4 ""
+  "figures/data_distribution.png" 1774526994.7704 69602 569c77f46127956c042ea2cb7ce4a49c ""
+  "presentation.aux" 1776350125.24243 5308 8ca6603f8b907d23b0ab7a109dcd5ae8 "pdflatex"
+  "presentation.bbl" 1776350018.47441 23626 e85ac4174bea5f26fb0f68151199d234 "biber presentation"
+  "presentation.nav" 1776350125.24535 2380 0de1d3b596fe00edbfcb42c3e39717a0 "pdflatex"
+  "presentation.out" 1776350125.24363 404 f4a89e307c3b7935935a1c57952b3ac4 "pdflatex"
+  "presentation.run.xml" 1776350125.24531 2460 72819a7388c0758315168f6b20b7750e "pdflatex"
+  "presentation.tex" 1776350123.53411 10779 9767d674199b4d50d8ec60e99736776d ""
   (generated)
   "presentation.aux"
   "presentation.bcf"

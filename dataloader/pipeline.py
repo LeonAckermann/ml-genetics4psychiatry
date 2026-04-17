@@ -12,7 +12,7 @@ import polars as pl
 
 from dataloader.preprocess import load_txt, load_txt_polars
 
-def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, polars=False):
+def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, polars=False, value="T_STAT"):
     path = Path(path).expanduser().resolve()
     output_path = Path(output_path).expanduser().resolve()
 
@@ -61,7 +61,7 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
     gc.collect()
 
     # --- Pass 2: pre-allocate matrix and fill one column per file ---
-    print("Pass 2: extracting T_STAT columns...")
+    print(f"Pass 2: extracting {value} columns...")
     n_files = len(allres_files)
     t_stat_matrix = np.empty((n_common, n_files), dtype=np.float64)
     phenotype_names = []
@@ -74,7 +74,7 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
 
         raw = (
             pl.scan_csv(str(file), separator="\t", null_values=NULL_VALS)
-            .select(["ID", "A1", "OMITTED", "T_STAT"])
+            .select(["ID", "A1", "OMITTED", value])
             .collect()
         )
 
@@ -85,12 +85,12 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
 
         df = (
             raw.group_by(["ID", "A1", "OMITTED"])
-            .agg(pl.col("T_STAT").sort_by(pl.col("T_STAT").abs()).last())
+            .agg(pl.col(value).sort_by(pl.col(value).abs()).last())
             .join(common_df, on=["ID", "A1", "OMITTED"], how="inner")
             .sort(["ID", "A1", "OMITTED"])
         )
         del raw
-        t_stat_matrix[:, i] = df["T_STAT"].to_numpy()
+        t_stat_matrix[:, i] = df[value].to_numpy()
         del df
         gc.collect()
 

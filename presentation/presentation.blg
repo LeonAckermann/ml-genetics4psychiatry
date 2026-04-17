@@ -1,15 +1,15 @@
 [0] Config.pm:307> INFO - This is Biber 2.19
 [0] Config.pm:310> INFO - Logfile is 'presentation.blg'
-[33] biber-darwin:340> INFO - === Tue Mar 17, 2026, 10:29:34
-[41] Biber.pm:419> INFO - Reading 'presentation.bcf'
-[77] Biber.pm:979> INFO - Found 9 citekeys in bib section 0
-[83] Biber.pm:4419> INFO - Processing section 0
-[88] Biber.pm:4610> INFO - Looking for bibtex file 'bibliography.bib' for section 0
-[95] bibtex.pm:1713> INFO - LaTeX decoding ...
-[159] bibtex.pm:1519> INFO - Found BibTeX data source 'bibliography.bib'
-[214] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
-[214] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
-[214] Biber.pm:4239> INFO - Sorting list 'none/global//global/global' of type 'entry' with template 'none' and locale 'en-US'
-[214] Biber.pm:4245> INFO - No sort tailoring available for locale 'en-US'
-[220] bbl.pm:660> INFO - Writing 'presentation.bbl' with encoding 'UTF-8'
-[223] bbl.pm:763> INFO - Output to presentation.bbl
+[34] biber-darwin:340> INFO - === Thu Apr 16, 2026, 16:33:38
+[45] Biber.pm:419> INFO - Reading 'presentation.bcf'
+[84] Biber.pm:979> INFO - Found 7 citekeys in bib section 0
+[91] Biber.pm:4419> INFO - Processing section 0
+[97] Biber.pm:4610> INFO - Looking for bibtex file 'bibliography.bib' for section 0
+[105] bibtex.pm:1713> INFO - LaTeX decoding ...
+[174] bibtex.pm:1519> INFO - Found BibTeX data source 'bibliography.bib'
+[241] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
+[241] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
+[241] Biber.pm:4239> INFO - Sorting list 'none/global//global/global' of type 'entry' with template 'none' and locale 'en-US'
+[241] Biber.pm:4245> INFO - No sort tailoring available for locale 'en-US'
+[246] bbl.pm:660> INFO - Writing 'presentation.bbl' with encoding 'UTF-8'
+[249] bbl.pm:763> INFO - Output to presentation.bbl

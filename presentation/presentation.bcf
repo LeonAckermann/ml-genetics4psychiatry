@@ -2374,12 +2374,6 @@
     <bcf:citekey order="6" intorder="1">arikTabNetAttentiveInterpretable2021</bcf:citekey>
     <bcf:citekey order="7" intorder="1">hollmannAccuratePredictionsSmall2025</bcf:citekey>
     <bcf:citekey order="8" intorder="1">kadraWelltunedSimpleNets</bcf:citekey>
-    <bcf:citekey order="9" intorder="1">hollmannTabPFNTransformerThat2023</bcf:citekey>
-    <bcf:citekey order="10" intorder="1">hollmannTabPFNTransformerThat2023</bcf:citekey>
-    <bcf:citekey order="11" intorder="1">hollmannTabPFNTransformerThat2023</bcf:citekey>
-    <bcf:citekey order="12" intorder="1">yeCloserLookTabPFN2025</bcf:citekey>
-    <bcf:citekey order="13" intorder="1">kadraWelltunedSimpleNets</bcf:citekey>
-    <bcf:citekey order="14" intorder="1">hollmannAccuratePredictionsSmall2025</bcf:citekey>
   </bcf:section>
   <!-- SORTING TEMPLATES -->
   <bcf:sortingtemplate name="none">

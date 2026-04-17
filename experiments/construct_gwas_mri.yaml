@@ -2,10 +2,12 @@
 
 construct_gwas_mri:
   run: true
-  input_path: "../../WKD_ANTOINE/__HETEROGEN_MULTITRAIT/data/results/pheno_gwas"
-  output_path: "./data/pipeline/input/gwas_mri/all_z_scores.txt"
+  #input_path: "../../WKD_ANTOINE/__HETEROGEN_MULTITRAIT/data/results/pheno_gwas"
+  input_path: "../data/pipeline/input/gwas_mri/pheno_gwas"
+  output_path: "./data/pipeline/input/gwas_mri/all_p_scores.txt"
   polars: true
   chunk_size: 100000
+  value: "P"
 
 plink2:
   prepare: false

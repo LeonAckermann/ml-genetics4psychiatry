@@ -1,0 +1,55 @@
+# Experiment: Residual DNN with Pre-loaded Best Parameters
+# This config loads best parameters from the best_params/ folder
+# and skips hyperparameter optimization entirely.
+
+construct_gwas_mri:
+  run: false
+
+plink2:
+  prepare: false
+
+sampling:
+  run: false
+
+# Data settings
+data:
+  illness: ["SCZ"]
+  p_clump: [0.0001]
+  distribution: ["low"]
+  target: Z
+  test_size: 0.2
+  n_splits: 10
+  save_splits: true
+  polars: true
+  chunk_size: 10000
+
+experiment:
+  run: false
+
+# Model settings
+model:
+  name: residual_dnn
+
+# Skip HPO and load best params from best_params folder
+# Hyperparameter optimization settings
+hpo:
+  run: true
+  n_trials: 30
+  outer_cv: 5
+  inner_cv: 5
+  search_space:
+    hidden_dim: [32, 128]
+    n_layers: [1, 8]
+    dropout: [0.1, 0.8]
+    learning_rate: [1e-6, 1e-2]
+    weight_decay: [0.0, 0.0001]
+    batch_size: [16, 64]
+    epochs: [20, 60]
+    patience: [5, 20]
+
+load_best_params: true
+
+# Evaluation settings
+evaluation:
+  metrics: [r2, mse]
+  binary_threshold: null
