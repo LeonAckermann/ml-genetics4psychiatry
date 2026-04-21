@@ -371,7 +371,11 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
     outer_kfold = KFold(n_splits=outer_cv, shuffle=True, random_state=42)
     outer_scores = []
     pearson_r2_scores = []
+    pearson_corr_scores = []
+    pearson_p_values = []
     spearman_rank_scores = []
+    spearman_corr_scores = []
+    spearman_p_values = []
     fold_best_params = []
 
     optuna.logging.set_verbosity(optuna.logging.INFO)
@@ -461,8 +465,12 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
             spearman_rho, spearman_p = spearmanr(y_test_outer, final_preds)
 
             outer_scores.append(score)
-            pearson_r2_scores.append([pearson_r2, pearson_p])
-            spearman_rank_scores.append([spearman_rho ** 2, spearman_p])
+            pearson_r2_scores.append(pearson_r2)
+            pearson_corr_scores.append(pearson_r)
+            pearson_p_values.append(pearson_p)
+            spearman_rank_scores.append(spearman_rho ** 2)
+            spearman_corr_scores.append(spearman_rho)
+            spearman_p_values.append(spearman_p)
             fold_best_params.append(best_params)
 
             # plot residual distribution and true vs. predicted values for this fold
@@ -501,25 +509,37 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
 
         mean_score = float(np.mean(outer_scores))
         std_score = float(np.std(outer_scores))
-        pearson_arr = np.asarray(pearson_r2_scores, dtype=float)
-        spearman_arr = np.asarray(spearman_rank_scores, dtype=float)
-
-        mean_pearson_r2 = float(np.mean(pearson_arr[:, 0]))
-        std_pearson_r2 = float(np.std(pearson_arr[:, 0]))
-        mean_pearson_p = float(np.mean(pearson_arr[:, 1]))
-        std_pearson_p = float(np.std(pearson_arr[:, 1]))
-        mean_spearman_rank = float(np.mean(spearman_arr[:, 0]))
-        std_spearman_rank = float(np.std(spearman_arr[:, 0]))
-        mean_spearman_p = float(np.mean(spearman_arr[:, 1]))
-        std_spearman_p = float(np.std(spearman_arr[:, 1]))
+        mean_pearson_corr = float(np.mean(pearson_corr_scores))
+        std_pearson_corr = float(np.std(pearson_corr_scores))
+        mean_pearson_r2 = float(np.mean(pearson_r2_scores))
+        std_pearson_r2 = float(np.std(pearson_r2_scores))
+        mean_pearson_p = float(np.mean(pearson_p_values))
+        std_pearson_p = float(np.std(pearson_p_values))
+        mean_spearman_corr = float(np.mean(spearman_corr_scores))
+        std_spearman_corr = float(np.std(spearman_corr_scores))
+        mean_spearman_rank = float(np.mean(spearman_rank_scores))
+        std_spearman_rank = float(np.std(spearman_rank_scores))
+        mean_spearman_p = float(np.mean(spearman_p_values))
+        std_spearman_p = float(np.std(spearman_p_values))
         print("=== Evaluation Results ===")
         print(f"Average R²: {mean_score:.4f} (+/- {std_score:.4f})")
+        print(f"Average Pearson r: {mean_pearson_corr:.4f} (+/- {std_pearson_corr:.4f})")
         print(f"Average Pearson r²: {mean_pearson_r2:.4f} (+/- {std_pearson_r2:.4f})")
         print(f"Average Pearson p-value: {mean_pearson_p:.4e} (+/- {std_pearson_p:.4e})")
+        print(f"Average Spearman rho: {mean_spearman_corr:.4f} (+/- {std_spearman_corr:.4f})")
         print(f"Average Spearman rank: {mean_spearman_rank:.4f} (+/- {std_spearman_rank:.4f})")
         print(f"Average Spearman p-value: {mean_spearman_p:.4e} (+/- {std_spearman_p:.4e})")
 
-        return outer_scores, pearson_r2_scores, spearman_rank_scores, fold_best_params
+        return (
+            outer_scores,
+            pearson_corr_scores,
+            pearson_r2_scores,
+            pearson_p_values,
+            spearman_corr_scores,
+            spearman_rank_scores,
+            spearman_p_values,
+            fold_best_params,
+        )
 
     # Original HPO logic below
     for fold, (train_idx, test_idx) in enumerate(outer_kfold.split(X_arr)):
@@ -644,22 +664,53 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
         )
         score = r2_score(y_test_outer, final_preds)
         outer_scores.append(score)
-        pearson_r, _ = pearsonr(y_test_outer, final_preds)
+        pearson_r, pearson_p = pearsonr(y_test_outer, final_preds)
         pearson_r2 = pearson_r ** 2
         pearson_r2_scores.append(pearson_r2)
+        pearson_corr_scores.append(pearson_r)
+        pearson_p_values.append(pearson_p)
+        spearman_rho, spearman_p = spearmanr(y_test_outer, final_preds)
+        spearman_corr_scores.append(spearman_rho)
+        spearman_rank_scores.append(spearman_rho ** 2)
+        spearman_p_values.append(spearman_p)
         print(f"Outer Fold {fold + 1} R2 Score: {score:.4f}")
+        print(f"Outer Fold {fold + 1} Pearson r: {pearson_r:.4f}")
         print(f"Best Params for Fold {fold + 1}: {best_params}\n")
 
     mean_score = np.mean(outer_scores)
     std_score = np.std(outer_scores)
+    mean_pearson_corr = np.mean(pearson_corr_scores)
+    std_pearson_corr = np.std(pearson_corr_scores)
     mean_pearson_r2 = np.mean(pearson_r2_scores)
     std_pearson_r2 = np.std(pearson_r2_scores)
+    mean_pearson_p = np.mean(pearson_p_values)
+    std_pearson_p = np.std(pearson_p_values)
+    mean_spearman_corr = np.mean(spearman_corr_scores)
+    std_spearman_corr = np.std(spearman_corr_scores)
+    mean_spearman_rank = np.mean(spearman_rank_scores)
+    std_spearman_rank = np.std(spearman_rank_scores)
+    mean_spearman_p = np.mean(spearman_p_values)
+    std_spearman_p = np.std(spearman_p_values)
 
     print("=== Final Nested CV Results ===")
     print(f"Average R2: {mean_score:.4f} (+/- {std_score:.4f})")
+    print(f"Average Pearson r: {mean_pearson_corr:.4f} (+/- {std_pearson_corr:.4f})")
     print(f"Average Pearson r²: {mean_pearson_r2:.4f} (+/- {std_pearson_r2:.4f})")
+    print(f"Average Pearson p-value: {mean_pearson_p:.4e} (+/- {std_pearson_p:.4e})")
+    print(f"Average Spearman rho: {mean_spearman_corr:.4f} (+/- {std_spearman_corr:.4f})")
+    print(f"Average Spearman rho²: {mean_spearman_rank:.4f} (+/- {std_spearman_rank:.4f})")
+    print(f"Average Spearman p-value: {mean_spearman_p:.4e} (+/- {std_spearman_p:.4e})")
 
-    return outer_scores, pearson_r2_scores, fold_best_params
+    return (
+        outer_scores,
+        pearson_corr_scores,
+        pearson_r2_scores,
+        pearson_p_values,
+        spearman_corr_scores,
+        spearman_rank_scores,
+        spearman_p_values,
+        fold_best_params,
+    )
 
 
 def nested_cv_regularized_regression(X, y, model_name='lasso_regression', outer_cv=5, inner_cv=3, n_trials=50, search_space=None):
@@ -896,7 +947,16 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             'search_space': search_space,
         }
     elif model_name in ["dnn", "residual_dnn"]:
-        outer_scores, pearson_r2_scores, spearman_rank_scores, fold_best_params = nested_cv_dnn(
+        (
+            outer_scores,
+            pearson_corr_scores,
+            pearson_r2_scores,
+            pearson_p_values,
+            spearman_corr_scores,
+            spearman_rank_scores,
+            spearman_p_values,
+            fold_best_params,
+        ) = nested_cv_dnn(
             X,
             y,
             model_name=model_name,
@@ -907,22 +967,28 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             val_size=0.1,
             best_params_list=best_params_list,
         )
-        pearson_arr = np.asarray(pearson_r2_scores, dtype=float)
-        spearman_arr = np.asarray(spearman_rank_scores, dtype=float)
         return {
             'r2_scores': outer_scores,
             "mean_r2": float(np.mean(outer_scores)),
             "std_r2": float(np.std(outer_scores)),
+            'pearson_corr_scores': pearson_corr_scores,
             'pearson_r2_scores': pearson_r2_scores,
-            "mean_pearson_r2": float(np.mean(pearson_arr[:, 0])),
-            "std_pearson_r2": float(np.std(pearson_arr[:, 0])),
-            "mean_pearson_p": float(np.mean(pearson_arr[:, 1])),
-            "std_pearson_p": float(np.std(pearson_arr[:, 1])),
+            'pearson_p_values': pearson_p_values,
+            "mean_pearson_corr": float(np.mean(pearson_corr_scores)),
+            "std_pearson_corr": float(np.std(pearson_corr_scores)),
+            "mean_pearson_r2": float(np.mean(pearson_r2_scores)),
+            "std_pearson_r2": float(np.std(pearson_r2_scores)),
+            "mean_pearson_p": float(np.mean(pearson_p_values)),
+            "std_pearson_p": float(np.std(pearson_p_values)),
+            'spearman_corr_scores': spearman_corr_scores,
             'spearman_rank_scores': spearman_rank_scores,
-            "mean_spearman_rank": float(np.mean(spearman_arr[:, 0])),
-            "std_spearman_rank": float(np.std(spearman_arr[:, 0])),
-            "mean_spearman_p": float(np.mean(spearman_arr[:, 1])),
-            "std_spearman_p": float(np.std(spearman_arr[:, 1])),
+            'spearman_p_values': spearman_p_values,
+            "mean_spearman_corr": float(np.mean(spearman_corr_scores)),
+            "std_spearman_corr": float(np.std(spearman_corr_scores)),
+            "mean_spearman_rank": float(np.mean(spearman_rank_scores)),
+            "std_spearman_rank": float(np.std(spearman_rank_scores)),
+            "mean_spearman_p": float(np.mean(spearman_p_values)),
+            "std_spearman_p": float(np.std(spearman_p_values)),
             'fold_best_params': fold_best_params,
             'search_space': search_space,
         }

@@ -19,11 +19,11 @@ data:
   save_splits: true
   polars: true
   chunk_size: 10000
-  row_ratio: [0.1]
-  col_ratio: [0.3]
+  row_ratio: [0.2, 0.4, 0.6, 0.8, 1.0]
+  col_ratio: [0.2, 0.4, 0.6, 0.8, 1.0]
   top_rows: true
   top_cols: true
-  mri_p_value: 0.0001
+  mri_p_value: 0.05
 
 experiment:
   run: false

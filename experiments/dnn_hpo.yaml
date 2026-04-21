@@ -41,9 +41,9 @@ model:
 # Hyperparameter optimization settings
 hpo:
   run: true
-  n_trials: 30
-  outer_cv: 5
-  inner_cv: 5
+  n_trials: 2
+  outer_cv: 2
+  inner_cv: 2
   search_space:
     hidden_dim: [32, 128]
     n_layers: [1, 8]
