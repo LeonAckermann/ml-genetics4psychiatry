@@ -10,7 +10,7 @@ sampling:
 
 # Data settings
 data:
-  illness: ["AZ"]
+  illness: ["SCZ"]
   p_clump: [0.0001]
   distribution: ["low"]
   target: Z
@@ -19,6 +19,11 @@ data:
   save_splits: true
   polars: true
   chunk_size: 10000
+  row_ratio: [0.2, 0.4, 0.6, 0.8, 1.0]
+  col_ratio: [0.2, 0.4, 0.6, 0.8, 1.0]
+  top_rows: true
+  top_cols: true
+  mri_p_value: 0.05
 
 experiment:
   run: false
@@ -46,7 +51,7 @@ hpo:
     learning_rate: [1e-6, 1e-2]
     weight_decay: [0.0, 0.0001]
     batch_size: [16, 64]
-    epochs: [20, 60]
+    epochs: [20, 500]
     patience: [5, 20]
 
 # Evaluation settings

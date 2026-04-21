@@ -499,18 +499,25 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
             print(f"  Fold {fold + 1} Preds std: {np.std(final_preds):.4f}, True std: {np.std(y_test_outer):.4f}, Residuals std: {np.std(residuals):.4f}")  
 
 
-        mean_score = np.mean(outer_scores[:][0])
-        std_score = np.std(outer_scores[:][0])
-        mean_pearson_r2 = np.mean(pearson_r2_scores[:][0])
-        std_pearson_r2 = np.std(pearson_r2_scores[:][0])
-        mean_spearman_rank = np.mean(spearman_rank_scores[:][0])
-        std_spearman_rank = np.std(spearman_rank_scores[:][0])
+        mean_score = float(np.mean(outer_scores))
+        std_score = float(np.std(outer_scores))
+        pearson_arr = np.asarray(pearson_r2_scores, dtype=float)
+        spearman_arr = np.asarray(spearman_rank_scores, dtype=float)
+
+        mean_pearson_r2 = float(np.mean(pearson_arr[:, 0]))
+        std_pearson_r2 = float(np.std(pearson_arr[:, 0]))
+        mean_pearson_p = float(np.mean(pearson_arr[:, 1]))
+        std_pearson_p = float(np.std(pearson_arr[:, 1]))
+        mean_spearman_rank = float(np.mean(spearman_arr[:, 0]))
+        std_spearman_rank = float(np.std(spearman_arr[:, 0]))
+        mean_spearman_p = float(np.mean(spearman_arr[:, 1]))
+        std_spearman_p = float(np.std(spearman_arr[:, 1]))
         print("=== Evaluation Results ===")
         print(f"Average R²: {mean_score:.4f} (+/- {std_score:.4f})")
         print(f"Average Pearson r²: {mean_pearson_r2:.4f} (+/- {std_pearson_r2:.4f})")
-        print(f"Average Pearson p-value: {np.mean(pearson_r2_scores[:][1]):.4e} (+/- {np.std(pearson_r2_scores[:][1]):.4e})")
+        print(f"Average Pearson p-value: {mean_pearson_p:.4e} (+/- {std_pearson_p:.4e})")
         print(f"Average Spearman rank: {mean_spearman_rank:.4f} (+/- {std_spearman_rank:.4f})")
-        print(f"Average Spearman p-value: {np.mean(spearman_rank_scores[:][1]):.4e} (+/- {np.std(spearman_rank_scores[:][1]):.4e})")
+        print(f"Average Spearman p-value: {mean_spearman_p:.4e} (+/- {std_spearman_p:.4e})")
 
         return outer_scores, pearson_r2_scores, spearman_rank_scores, fold_best_params
 
@@ -864,7 +871,7 @@ def normal_cv_linear_regression(X, y, cv=5):
     print(f"Average Pearson p-value: {np.mean(pearson_p_values):.4e}")
     print(f"Average Spearman p-value: {np.mean(spearman_p_values):.4e}")
 
-    return r2_scores, pearson_r2_scores, spearman_rank_scores
+    return r2_scores, pearson_r2_scores, pearson_p_values, spearman_rank_scores, spearman_p_values
 
 
 def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, search_space=None, best_params_list=None):
@@ -900,16 +907,22 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             val_size=0.1,
             best_params_list=best_params_list,
         )
+        pearson_arr = np.asarray(pearson_r2_scores, dtype=float)
+        spearman_arr = np.asarray(spearman_rank_scores, dtype=float)
         return {
             'r2_scores': outer_scores,
-            "mean_r2": np.mean(outer_scores),
-            "std_r2": np.std(outer_scores),
+            "mean_r2": float(np.mean(outer_scores)),
+            "std_r2": float(np.std(outer_scores)),
             'pearson_r2_scores': pearson_r2_scores,
-            "mean_pearson_r2": np.mean(pearson_r2_scores),
-            "std_pearson_r2": np.std(pearson_r2_scores),
+            "mean_pearson_r2": float(np.mean(pearson_arr[:, 0])),
+            "std_pearson_r2": float(np.std(pearson_arr[:, 0])),
+            "mean_pearson_p": float(np.mean(pearson_arr[:, 1])),
+            "std_pearson_p": float(np.std(pearson_arr[:, 1])),
             'spearman_rank_scores': spearman_rank_scores,
-            "mean_spearman_rank": np.mean(spearman_rank_scores),
-            "std_spearman_rank": np.std(spearman_rank_scores),
+            "mean_spearman_rank": float(np.mean(spearman_arr[:, 0])),
+            "std_spearman_rank": float(np.std(spearman_arr[:, 0])),
+            "mean_spearman_p": float(np.mean(spearman_arr[:, 1])),
+            "std_spearman_p": float(np.std(spearman_arr[:, 1])),
             'fold_best_params': fold_best_params,
             'search_space': search_space,
         }
@@ -932,7 +945,7 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             'search_space': search_space,
         }
     elif model_name == "linear_regression":
-        r2_scores, pearson_r2_scores, spearman_rank_scores = normal_cv_linear_regression(
+        r2_scores, pearson_r2_scores, pearson_p_values, spearman_rank_scores, spearman_p_values = normal_cv_linear_regression(
             X,
             y,
             cv=outer_cv,
@@ -942,11 +955,17 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             'mean_r2': float(np.mean(r2_scores)),
             'std_r2': float(np.std(r2_scores)),
             "pearson_r2_scores": pearson_r2_scores,
+            "pearson_p_values": pearson_p_values,
             'mean_pearson_r2': float(np.mean(pearson_r2_scores)),
             "std_pearson_r2": float(np.std(pearson_r2_scores)),
+            "mean_pearson_p": float(np.mean(pearson_p_values)),
+            "std_pearson_p": float(np.std(pearson_p_values)),
             "spearman_rank_scores": spearman_rank_scores,
+            "spearman_p_values": spearman_p_values,
             'mean_spearman_rank': float(np.mean(spearman_rank_scores)),
             "std_spearman_rank": float(np.std(spearman_rank_scores)),
+            "mean_spearman_p": float(np.mean(spearman_p_values)),
+            "std_spearman_p": float(np.std(spearman_p_values)),
             'fold_best_params': [],
             'search_space': None,
         }
@@ -1242,10 +1261,10 @@ def main() -> None:
 
     
         # construct data dict based on data_cfg distribution, p_clump, and illness, this could be multiple runs
-        for dist, p, illness in product(data_cfg.get("distribution", []), data_cfg.get("p_clump", []), data_cfg.get("illness", [])):
+        for dist, p, illness, row_ratio, col_ratio in product(data_cfg.get("distribution", []), data_cfg.get("p_clump", []), data_cfg.get("illness", []), data_cfg.get("row_ratio", [1.0]), data_cfg.get("col_ratio", [1.0])):
             
             print("Starting experiment with illness={}, p_clump={}, distribution={}...".format(illness, p, dist))
-            experiment_name = f"{cfg['model']['name']}_{illness}_p{p}_{dist}"
+            experiment_name = f"{cfg['model']['name']}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}"
             results_dir = Path("./results") / experiment_name
             results_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1271,7 +1290,19 @@ def main() -> None:
                     raise FileNotFoundError(f"Sampled data not found at {data_path}. Please run the sampling step first with sampling flag set to True.")
 
             # Load data and prepare splits, 
-            df = load_illness_data(illness, in_notebook=False, polars=data_cfg.get("polars", True), distribution=dist, chunk_size=chunk_size, total_chunks=total_chunks, p_value=p)
+            df = load_illness_data(illness, 
+                                   in_notebook=False, 
+                                   polars=data_cfg.get("polars", True), 
+                                   distribution=dist, 
+                                   chunk_size=chunk_size, 
+                                   total_chunks=total_chunks, 
+                                   p_value=p,
+                                   row_ratio=row_ratio,
+                                   col_ratio=col_ratio,
+                                   top_rows=data_cfg.get("top_rows", True),
+                                   top_cols=data_cfg.get("top_cols", True),
+                                   mri_p_value=data_cfg.get("mri_p_value", 0.05)
+            )
             print(f"Loaded data for {illness}: {df.shape[0]} samples, {df.shape[1]} features")
 
             hpo_results = None
