@@ -35,7 +35,7 @@ class TabPFNModel:
 
 class FinetunedTabPFNModel:
     def __init__(self, random_state=42, device="cuda", epochs=30, learning_rate=1e-5):
-        self.model = FinetunedTabPFNRegressor(device=device, epochs=epochs, learning_rate=learning_rate, random_state=random_state)  # Uses TabPFN-2.5 weights, trained on synthetic data only.
+        self.model = FinetunedTabPFNRegressor(device=device, epochs=epochs, learning_rate=float(learning_rate), random_state=random_state)  # Uses TabPFN-2.5 weights, trained on synthetic data only.
         # To use TabPFN v2:
         # Create final pipeline with best parameters
 

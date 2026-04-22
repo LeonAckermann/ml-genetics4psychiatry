@@ -103,7 +103,10 @@ def get_significant(illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1
     rows_to_keep = ["ID", "Z"] + significant_cols
     df_top = df_top[rows_to_keep]
 
-    return df_top
+    df_low = df[~df["ID"].isin(significant_rows["ID"])]
+    df_low = df_low[["ID", "Z"] + significant_cols]
+
+    return df_top, df_low
 
 def get_significant_metrics(illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1, top_rows=True, top_cols=True, mri_p_value=0.05):
     data_path = f"./data/sampled_p/{distribution}/sampled_{illness}_p{p_value}.txt"
@@ -193,7 +196,7 @@ def load_illness_data(illness, in_notebook=True, polars=False, distribution="low
         else:
             df_illness = load_txt(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
     else:
-        df_illness = get_significant(illness, distribution, p_value, row_ratio=row_ratio, col_ratio=col_ratio, top_rows=top_rows, top_cols=top_cols, mri_p_value=mri_p_value)
+        df_illness, _ = get_significant(illness, distribution, p_value, row_ratio=row_ratio, col_ratio=col_ratio, top_rows=top_rows, top_cols=top_cols, mri_p_value=mri_p_value)
 
     return df_illness
 

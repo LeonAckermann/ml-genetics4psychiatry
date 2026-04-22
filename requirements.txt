@@ -12,3 +12,4 @@ tabpfn
 polars
 pyarrow
 optuna
+umap-learn
