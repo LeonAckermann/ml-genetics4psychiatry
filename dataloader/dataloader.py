@@ -95,6 +95,7 @@ def get_significant(illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1
     else:
         significant_cols = df_significant_cols.tail(len(df_significant_cols) - top_cols)
 
+
     significant_cols = significant_cols.reset_index(drop=True)
     significant_cols = significant_cols.iloc[:, 0].tolist()
 
@@ -103,6 +104,73 @@ def get_significant(illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1
     df_top = df_top[rows_to_keep]
 
     return df_top
+
+def get_significant_metrics(illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1, top_rows=True, top_cols=True, mri_p_value=0.05):
+    data_path = f"./data/sampled_p/{distribution}/sampled_{illness}_p{p_value}.txt"
+
+    # check if data file exists
+    significant_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}_significant_rows_p{mri_p_value}.txt"
+    if not Path(significant_path).exists():
+        # create significant rows file if missing
+        create_significant_rows(illness, distribution, p_value, mri_p_value)
+    
+    significant_cols_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}_significant_columns_p{mri_p_value}.txt"
+    if not Path(significant_cols_path).exists():
+        # create significant columns file if missing
+        create_significant_columns(illness, distribution, p_value, mri_p_value)
+
+    df = load_txt(data_path)
+    df_significant_rows = load_txt_polars(significant_path, sep="\t")
+    df_significant_cols = load_txt_polars(significant_cols_path, sep="\t")
+
+    df_significant_rows = df_significant_rows.sort_values(by="significant_count", ascending=False)
+    df_significant_cols = df_significant_cols.sort_values(by="significant_count", ascending=False)
+
+    top_rows = int(len(df_significant_rows) * row_ratio)
+    top_cols = int(len(df_significant_cols) * col_ratio)
+
+    if top_rows:
+        significant_rows = df_significant_rows.head(top_rows)
+    else:
+        significant_rows = df_significant_rows.tail(len(df_significant_rows) - top_rows)
+    
+    if top_cols:
+        significant_cols = df_significant_cols.head(top_cols)
+    else:
+        significant_cols = df_significant_cols.tail(len(df_significant_cols) - top_cols)
+
+    significant_cols = significant_cols.reset_index(drop=True)
+    significant_cols = significant_cols.iloc[:, 0].tolist()
+
+    df_top = df[df["ID"].isin(significant_rows["ID"])]
+    rows_to_keep = ["ID", "Z"] + significant_cols
+    df = df_top[rows_to_keep]
+
+    # count number of significant features per row
+    significant_counts_row = (df.iloc[:, 2:] < mri_p_value).sum(axis=1)
+    df_sorted_rows = df.copy()
+    df_sorted_rows["significant_count"] = significant_counts_row
+    df_sorted_rows["significant_percentage"] = significant_counts_row / (df.shape[1] - 2)
+    average_significant_per_row_count = significant_counts_row.mean()
+    average_significant_per_row_percentage = (average_significant_per_row_count / (df.shape[1] - 2)).mean()
+
+
+    # count number of significant samples per feature
+    df_pivot = df.T
+    df_pivot = df_pivot.iloc[2:]
+    significant_counts_cols = (df_pivot.iloc[:, 1:] < mri_p_value).sum(axis=1)
+    df_sorted_cols = df_pivot.copy()
+    df_sorted_cols["significant_count"] = significant_counts_cols
+    df_sorted_cols["significant_percentage"] = significant_counts_cols / (df.shape[0] - 2)
+    average_significant_per_col_count = significant_counts_cols.mean()
+    average_significant_per_col_percentage = (average_significant_per_col_count / (df.shape[0] - 2)).mean()
+
+    # get overall number of significant entries in the entire dataframe
+    total_significant_entries = (df.iloc[:, 2:] < mri_p_value).sum().sum()
+    total_significant_percentage = total_significant_entries / ((df.shape[0] - 2) * (df.shape[1] - 2))
+
+
+    return average_significant_per_row_count, average_significant_per_row_percentage, average_significant_per_col_count, average_significant_per_col_percentage, total_significant_entries, total_significant_percentage
 
 def load_illness_data(illness, in_notebook=True, polars=False, distribution="low", chunk_size=100000, total_chunks=None, p_value="0.001", row_ratio=0.2, col_ratio=0.1, top_rows=True, top_cols=True, mri_p_value=0.05):
     illnesses = {"MDD": "0.001", "ADHD": "0.001", "ASD": "0.001", "OCD": "0.001", "SCZ": "0.0001", "BIP": "0.001", "AZ": "0.001"}

@@ -10,7 +10,7 @@ sampling:
 
 # Data settings
 data:
-  illness: ["SCZ"]
+  illness: ["BIP"]
   p_clump: [0.0001]
   distribution: ["low"]
   target: Z

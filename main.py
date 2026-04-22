@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import gc
+from distro import name
 import torch
 
 from pathlib import Path
@@ -779,7 +780,7 @@ def nested_cv_regularized_regression(X, y, model_name='lasso_regression', outer_
     return outer_scores, mean_score, std_score, fold_best_params
 
 
-def normal_cv_linear_regression(X, y, cv=5):
+def normal_cv_linear_regression(X, y, cv=5, model_name='linear_regression', cfg=None):
     """Perform normal cross-validation for Linear regression (no HPO)."""
     from sklearn.linear_model import LinearRegression # <-- Import standard sklearn model
 
@@ -799,7 +800,13 @@ def normal_cv_linear_regression(X, y, cv=5):
     # print the number of samples removed as outliers    
     print(f"Removed {len(outlier_idx)} outliers from the dataset based on IQR")
 
-    model = LinearRegression()
+    if model_name == 'linear_regression':
+        model = LinearRegression()
+    elif model_name == "tabpfn":
+        model = build_model(cfg)
+    else:
+        raise ValueError("Unsupported model name")
+
     pipeline = Pipeline([
         ('scaler', StandardScaler()),
         ('model', model)
@@ -925,7 +932,7 @@ def normal_cv_linear_regression(X, y, cv=5):
     return r2_scores, pearson_r2_scores, pearson_p_values, spearman_rank_scores, spearman_p_values
 
 
-def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, search_space=None, best_params_list=None):
+def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, search_space=None, best_params_list=None, cfg=None):
     """Perform hyperparameter optimization using Optuna for the specified model.
 
     If best_params_list is provided, skip HPO and use those params directly.
@@ -1010,11 +1017,13 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             'fold_best_params': fold_best_params,
             'search_space': search_space,
         }
-    elif model_name == "linear_regression":
+    elif model_name in ["linear_regression", "tabpfn"]:
         r2_scores, pearson_r2_scores, pearson_p_values, spearman_rank_scores, spearman_p_values = normal_cv_linear_regression(
             X,
             y,
             cv=outer_cv,
+            model_name=model_name,
+            cfg=cfg,
         )
         return {
             'r2_scores': r2_scores,
@@ -1401,7 +1410,7 @@ def main() -> None:
                 else:
                     raise ValueError(f"No fold_best_params found in {load_best_params_file}")
 
-            if hpo_enabled and cfg["model"]["name"] in ["xgboost", "dnn", "residual_dnn", "lasso_regression", "ridge_regression", "linear_regression"]:
+            if hpo_enabled and cfg["model"]["name"] in ["xgboost", "dnn", "residual_dnn", "lasso_regression", "ridge_regression", "linear_regression", "tabpfn"]:
                 print(f"Running nested CV HPO for experiment {experiment_name}...")
                 df_pandas = df.to_pandas() if hasattr(df, "to_pandas") else df
                 id_cols = [col for col in ["ID"] if col in df_pandas.columns]
@@ -1416,6 +1425,7 @@ def main() -> None:
                     inner_cv=hpo_cfg.get("inner_cv", 3),
                     search_space=hpo_cfg.get("search_space"),
                     best_params_list=best_params_for_eval,
+                    cfg=cfg,
                 )
                 output["hpo"] = hpo_results
 
