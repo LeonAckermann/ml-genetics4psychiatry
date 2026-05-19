@@ -1,0 +1,259 @@
+{
+  "hpo": {
+    "r2_scores": [
+      0.3731722831726074,
+      0.3377971053123474,
+      0.485518217086792,
+      0.46023839712142944,
+      -0.02253139019012451
+    ],
+    "mean_r2": 0.32683892250061036,
+    "std_r2": 0.18292130320484676,
+    "pearson_corr_scores": [
+      0.6703475117683411,
+      0.6048980355262756,
+      0.7000173330307007,
+      0.713225245475769,
+      0.4706750512123108
+    ],
+    "pearson_r2_scores": [
+      0.4493657946586609,
+      0.3659016191959381,
+      0.49002426862716675,
+      0.5086902379989624,
+      0.22153499722480774
+    ],
+    "pearson_p_values": [
+      1.905585411687838e-11,
+      4.479197901474663e-09,
+      9.914241736602714e-13,
+      3.3905576913781377e-13,
+      1.5621310012647882e-05
+    ],
+    "mean_pearson_corr": 0.6318325996398926,
+    "std_pearson_corr": 0.08883079141378403,
+    "mean_pearson_r2": 0.40710338950157166,
+    "std_pearson_r2": 0.10499055683612823,
+    "mean_pearson_p": 3.125162038486451e-06,
+    "std_pearson_p": 6.2480744418280665e-06,
+    "spearman_corr_scores": [
+      0.08309412106880461,
+      0.27042577675489066,
+      0.303521184651704,
+      0.35501340764498657,
+      -0.0430493391442808
+    ],
+    "spearman_rank_scores": [
+      0.006904632956197158,
+      0.07313010073348596,
+      0.09212510953237381,
+      0.1260345196077054,
+      0.0018532456007593072
+    ],
+    "spearman_p_values": [
+      0.46951326238988655,
+      0.01663961371220918,
+      0.006904963649154393,
+      0.001534098205244555,
+      0.7100789095885075
+    ],
+    "mean_spearman_corr": 0.19380103019522102,
+    "std_spearman_corr": 0.1498355177565565,
+    "mean_spearman_rank": 0.06000952168610433,
+    "std_spearman_rank": 0.04850802528021145,
+    "mean_spearman_p": 0.24093416950900046,
+    "std_spearman_p": 0.2948678686945156,
+    "fold_best_params": [
+      {
+        "hidden_dim": 73,
+        "n_layers": 8,
+        "dropout": 0.5796756995127765,
+        "learning_rate": 0.005319360135267336,
+        "weight_decay": 6.944295866368337e-05,
+        "batch_size": 16,
+        "epochs": 53,
+        "patience": 18
+      },
+      {
+        "hidden_dim": 51,
+        "n_layers": 8,
+        "dropout": 0.11012439945112917,
+        "learning_rate": 0.0032822070889139522,
+        "weight_decay": 9.631791946490602e-09,
+        "batch_size": 25,
+        "epochs": 462,
+        "patience": 14
+      },
+      {
+        "hidden_dim": 41,
+        "n_layers": 7,
+        "dropout": 0.2880594593345497,
+        "learning_rate": 0.0044224166016176856,
+        "weight_decay": 9.017439796658579e-05,
+        "batch_size": 16,
+        "epochs": 430,
+        "patience": 15
+      },
+      {
+        "hidden_dim": 71,
+        "n_layers": 8,
+        "dropout": 0.13081808373808074,
+        "learning_rate": 0.004794230213825721,
+        "weight_decay": 1.8724114649111611e-06,
+        "batch_size": 17,
+        "epochs": 492,
+        "patience": 19
+      },
+      {
+        "hidden_dim": 63,
+        "n_layers": 6,
+        "dropout": 0.4572132163116612,
+        "learning_rate": 0.00013908967958228577,
+        "weight_decay": 5.7356698966038055e-05,
+        "batch_size": 18,
+        "epochs": 276,
+        "patience": 18
+      }
+    ],
+    "search_space": {
+      "hidden_dim": [
+        32,
+        128
+      ],
+      "n_layers": [
+        1,
+        8
+      ],
+      "dropout": [
+        0.1,
+        0.8
+      ],
+      "learning_rate": [
+        "1e-6",
+        "1e-2"
+      ],
+      "weight_decay": [
+        0.0,
+        0.0001
+      ],
+      "batch_size": [
+        16,
+        64
+      ],
+      "epochs": [
+        20,
+        500
+      ],
+      "patience": [
+        5,
+        20
+      ]
+    }
+  },
+  "experiment": "residual_dnn_SCZ_p0.0001_low_0.2_0.2",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0
+      ],
+      "col_ratio": [
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.05
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "residual_dnn",
+      "output_dim": 1,
+      "dropout": 0.4,
+      "learning_rate": 1e-05,
+      "epochs": 300,
+      "batch_size": 32,
+      "patience": 20
+    },
+    "hpo": {
+      "run": true,
+      "n_trials": 30,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "hidden_dim": [
+          32,
+          128
+        ],
+        "n_layers": [
+          1,
+          8
+        ],
+        "dropout": [
+          0.1,
+          0.8
+        ],
+        "learning_rate": [
+          "1e-6",
+          "1e-2"
+        ],
+        "weight_decay": [
+          0.0,
+          0.0001
+        ],
+        "batch_size": [
+          16,
+          64
+        ],
+        "epochs": [
+          20,
+          500
+        ],
+        "patience": [
+          5,
+          20
+        ]
+      }
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260421_163924"
+}

@@ -1,0 +1,231 @@
+{
+  "hpo": {
+    "outer_scores": [
+      0.005194902420043945,
+      -0.0230257511138916,
+      0.007097065448760986,
+      0.001631319522857666,
+      -0.04093623161315918
+    ],
+    "mean_r2": -0.010007739067077637,
+    "std_r2": 0.018895515972817283,
+    "fold_best_params": [
+      {
+        "n_estimators": 49,
+        "max_depth": 5,
+        "learning_rate": 0.10429669842523925,
+        "subsample": 0.9974985995449137,
+        "colsample_bytree": 0.8086411583165538,
+        "reg_alpha": 0.06483757365713058,
+        "reg_lambda": 0.20290953520744728,
+        "min_child_weight": 1.0440266590817653,
+        "gamma": 0.2338716506768701,
+        "early_stopping_rounds": 9.60420750719698,
+        "random_state": 42,
+        "verbosity": 0,
+        "n_jobs": 1
+      },
+      {
+        "n_estimators": 56,
+        "max_depth": 4,
+        "learning_rate": 0.12996024892742933,
+        "subsample": 0.7624000947617572,
+        "colsample_bytree": 0.8703342860640987,
+        "reg_alpha": 0.0967367162568056,
+        "reg_lambda": 0.3939268345882847,
+        "min_child_weight": 1.6851749950602772,
+        "gamma": 0.2559286461912606,
+        "early_stopping_rounds": 11.403419455403686,
+        "random_state": 42,
+        "verbosity": 0,
+        "n_jobs": 1
+      },
+      {
+        "n_estimators": 48,
+        "max_depth": 4,
+        "learning_rate": 0.12370891714125744,
+        "subsample": 0.7985688971022761,
+        "colsample_bytree": 0.9811886260396608,
+        "reg_alpha": 0.00608282701198375,
+        "reg_lambda": 0.2599878200222769,
+        "min_child_weight": 1.6497994112550376,
+        "gamma": 0.06746690969860149,
+        "early_stopping_rounds": 10.415820342335447,
+        "random_state": 42,
+        "verbosity": 0,
+        "n_jobs": 1
+      },
+      {
+        "n_estimators": 76,
+        "max_depth": 3,
+        "learning_rate": 0.11643311722316477,
+        "subsample": 0.6386502760604651,
+        "colsample_bytree": 0.8009361365799778,
+        "reg_alpha": 0.02338746029456435,
+        "reg_lambda": 0.29085368543623824,
+        "min_child_weight": 1.0415503855992434,
+        "gamma": 0.2792481919871007,
+        "early_stopping_rounds": 9.609814700743845,
+        "random_state": 42,
+        "verbosity": 0,
+        "n_jobs": 1
+      },
+      {
+        "n_estimators": 34,
+        "max_depth": 4,
+        "learning_rate": 0.15234455629019672,
+        "subsample": 0.9817152074768144,
+        "colsample_bytree": 0.9231347746155,
+        "reg_alpha": 0.08625839693020418,
+        "reg_lambda": 0.04504262810002152,
+        "min_child_weight": 1.2979778031598102,
+        "gamma": 0.20177248910558487,
+        "early_stopping_rounds": 19.68487887218651,
+        "random_state": 42,
+        "verbosity": 0,
+        "n_jobs": 1
+      }
+    ],
+    "search_space": {
+      "n_estimators": [
+        30,
+        100
+      ],
+      "max_depth": [
+        3,
+        8
+      ],
+      "learning_rate": [
+        0.1,
+        0.6
+      ],
+      "subsample": [
+        0.5,
+        1.0
+      ],
+      "colsample_bytree": [
+        0.8,
+        1.0
+      ],
+      "reg_alpha": [
+        0,
+        0.1
+      ],
+      "reg_lambda": [
+        0,
+        0.5
+      ],
+      "min_child_weight": [
+        1,
+        3
+      ],
+      "gamma": [
+        0,
+        0.3
+      ],
+      "early_stopping_rounds": [
+        5,
+        20
+      ]
+    }
+  },
+  "experiment": "xgboost_MDD_p0.001_low",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ",
+        "ADHD",
+        "MDD",
+        "AZ",
+        "BIP",
+        "OCD"
+      ],
+      "p_clump": [
+        0.0001,
+        0.001,
+        0.01,
+        0.1
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "xgboost"
+    },
+    "hpo": {
+      "run": true,
+      "n_trials": 30,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "n_estimators": [
+          30,
+          100
+        ],
+        "max_depth": [
+          3,
+          8
+        ],
+        "learning_rate": [
+          0.1,
+          0.6
+        ],
+        "subsample": [
+          0.5,
+          1.0
+        ],
+        "colsample_bytree": [
+          0.8,
+          1.0
+        ],
+        "reg_alpha": [
+          0,
+          0.1
+        ],
+        "reg_lambda": [
+          0,
+          0.5
+        ],
+        "min_child_weight": [
+          1,
+          3
+        ],
+        "gamma": [
+          0,
+          0.3
+        ],
+        "early_stopping_rounds": [
+          5,
+          20
+        ]
+      }
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260413_141217"
+}

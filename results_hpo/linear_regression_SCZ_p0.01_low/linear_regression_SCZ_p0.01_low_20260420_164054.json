@@ -1,0 +1,113 @@
+{
+  "sampling_metrics_SCZ_low_p0.01": {
+    "illness": "SCZ",
+    "p_value": 0.01,
+    "distribution": "low",
+    "sample_size": 17731,
+    "num_significant": 17731,
+    "num_non_significant": 194236,
+    "num_bins": null,
+    "min_samples_per_bin": null,
+    "output_path": "/pasteur/helix/projects/GGS_CONNECT/WKD_LEON/ml-genetics4psychiatry/data/sampled/low/sampled_SCZ_p0.01.txt"
+  },
+  "experiment": "linear_regression_SCZ_p0.01_low",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001,
+        0.001,
+        0.01,
+        0.1
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "distribution": [
+        "low"
+      ],
+      "sampling": true
+    },
+    "experiment": {
+      "run": true
+    },
+    "model": {
+      "name": "linear_regression"
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse"
+      ],
+      "binary_threshold": null
+    },
+    "seed": 51
+  },
+  "timestamp": "20260420_164054",
+  "per_seed": [
+    {
+      "r2": -0.07417503894839639,
+      "mse": 10.890552957960553,
+      "seed": 42
+    },
+    {
+      "r2": -0.05880620651442303,
+      "mse": 10.77466935087003,
+      "seed": 43
+    },
+    {
+      "r2": -0.07893578100791077,
+      "mse": 10.876452089340958,
+      "seed": 44
+    },
+    {
+      "r2": -0.08664670026868881,
+      "mse": 11.085986805552865,
+      "seed": 45
+    },
+    {
+      "r2": -0.0790256927049604,
+      "mse": 10.948591447447397,
+      "seed": 46
+    },
+    {
+      "r2": -0.0754782499477531,
+      "mse": 10.794156186206301,
+      "seed": 47
+    },
+    {
+      "r2": -0.06828119308842195,
+      "mse": 10.952497771558694,
+      "seed": 48
+    },
+    {
+      "r2": -0.0485531680168263,
+      "mse": 10.708273151043455,
+      "seed": 49
+    },
+    {
+      "r2": -0.08702369499866691,
+      "mse": 10.897222911850545,
+      "seed": 50
+    },
+    {
+      "r2": -0.06927352628223016,
+      "mse": 10.940578528789118,
+      "seed": 51
+    }
+  ],
+  "aggregated": {
+    "r2": -0.07243100657905743,
+    "mse": 10.886898120061991
+  }
+}

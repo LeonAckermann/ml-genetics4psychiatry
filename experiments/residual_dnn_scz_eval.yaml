@@ -22,8 +22,8 @@ data:
   save_splits: true
   polars: true
   chunk_size: 10000
-  row_ratio: [0.4]
-  col_ratio: [0.5]
+  row_ratio: [1]
+  col_ratio: [1]
   top_rows: true
   top_cols: true
   mri_p_value: 0.0001

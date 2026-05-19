@@ -1,0 +1,68 @@
+{
+  "hpo": {
+    "cv_scores": [
+      -0.7536945343017578,
+      -1.3564121723175049,
+      -1.1595091819763184,
+      -1.6187269687652588,
+      -1.9257423877716064
+    ],
+    "mean_r2": -1.3628170490264893,
+    "std_r2": 0.3986929076913048
+  },
+  "experiment": "linear_regression_ADHD_p0.0001_low",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ",
+        "ADHD",
+        "MDD",
+        "AZ",
+        "BIP",
+        "OCD"
+      ],
+      "p_clump": [
+        0.0001,
+        0.001,
+        0.01,
+        0.1
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "linear_regression"
+    },
+    "hpo": {
+      "run": true,
+      "outer_cv": 5
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260413_134417"
+}

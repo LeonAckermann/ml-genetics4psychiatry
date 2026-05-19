@@ -1,4 +1,4 @@
-# Experiment: Linear Regression on Schizophrenia (SCZ)
+# Experiment: Lasso Regression with HPO on Schizophrenia (SCZ)
 construct_gwas_mri:
   run: false
 
@@ -6,30 +6,37 @@ plink2:
   prepare: false
 
 sampling:
-  run: true
-  p_clump: 0.0001
-  distribution: low
-  polars: true
-  chunk_size: 10000
-  
+  run: false
+
 # Data settings
 data:
-  illness: SCZ
-  p_clump: 0.0001
+  illness: ["SCZ"]
+  p_clump: [0.001]
+  distribution: ["low"]
   target: Z
   test_size: 0.2
   n_splits: 10
   save_splits: true
   polars: true
+  chunk_size: 10000
+  row_ratio: [1.0]
+  col_ratio: [1.0]
+  top_rows: true
+  top_cols: true
+  mri_p_value: 0.05
 
 experiment:
-  run: true
+  run: false
 
 # Model settings
 model:
   name: linear_regression    # Options: linear_regression, dnn, baseline
+# Hyperparameter optimization settings
+hpo:
+  run: true
+  outer_cv: 5
 
 # Evaluation settings
 evaluation:
-  metrics: [r2, mse]
-  binary_threshold: null      # Set to a number (e.g. 0 or 1) to also compute classification metrics
+  metrics: [r2, mse, pearson_r2]
+  binary_threshold: null

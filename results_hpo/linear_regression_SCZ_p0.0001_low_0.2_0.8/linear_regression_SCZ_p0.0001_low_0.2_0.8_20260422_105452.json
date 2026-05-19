@@ -1,0 +1,116 @@
+{
+  "hpo": {
+    "r2_scores": [
+      -0.028275489807128906,
+      0.1879088282585144,
+      -0.12726759910583496,
+      -0.3698650598526001,
+      -0.29697108268737793
+    ],
+    "mean_r2": -0.1268940806388855,
+    "std_r2": 0.19838735886634787,
+    "pearson_r2_scores": [
+      0.18722233176231384,
+      0.3625201880931854,
+      0.15737485885620117,
+      0.14760173857212067,
+      0.11498001962900162
+    ],
+    "pearson_p_values": [
+      9.475098340772092e-05,
+      8.74800321071234e-09,
+      0.00038840866181999445,
+      0.0017234071856364608,
+      0.013929084874689579
+    ],
+    "mean_pearson_r2": 0.19393983483314514,
+    "std_pearson_r2": 0.08738802373409271,
+    "mean_pearson_p": 0.0032271321397274733,
+    "std_pearson_p": 0.0053866030648350716,
+    "spearman_rank_scores": [
+      0.17010691147180698,
+      0.3004808243812164,
+      0.12695607084572802,
+      0.0656992663929477,
+      0.0543236581378934
+    ],
+    "spearman_p_values": [
+      0.00021371842899599452,
+      2.965520436878864e-07,
+      0.0015824539503867246,
+      0.04091141683977553,
+      0.09634135207103353
+    ],
+    "mean_spearman_rank": 0.1435133462459185,
+    "std_spearman_rank": 0.08902806496878149,
+    "mean_spearman_p": 0.027809847568447094,
+    "std_spearman_p": 0.037659027799377194,
+    "fold_best_params": [],
+    "search_space": null
+  },
+  "experiment": "linear_regression_SCZ_p0.0001_low_0.2_0.8",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0
+      ],
+      "col_ratio": [
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.05
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "linear_regression"
+    },
+    "hpo": {
+      "run": true,
+      "outer_cv": 5
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse",
+        "pearson_r2"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260422_105452"
+}

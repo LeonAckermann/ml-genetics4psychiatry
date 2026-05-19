@@ -54,6 +54,121 @@ def create_significant_columns(illness, distribution, p_value, pval_threshold=0.
     #df_pivot.reset_index().rename(columns={"index": "feature"}).to_csv(significant_cols_path, sep="\t", index=False)
     df_pivot[["ID", "significant_count"]].to_csv(significant_cols_path, index=False, sep="\t")  
 
+
+def apply_significant_no_data_leakage(df, illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1, top_rows=True, top_cols=True, mri_p_value=0.05, treshold=None):
+    #data_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt"
+
+    # check if data file exists
+    significant_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}_significant_rows_p{mri_p_value}.txt"
+    if not Path(significant_path).exists():
+        # create significant rows file if missing
+        create_significant_rows(illness, distribution, p_value, mri_p_value)
+    
+    significant_cols_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}_significant_columns_p{mri_p_value}.txt"
+    if not Path(significant_cols_path).exists():
+        # create significant columns file if missing
+        create_significant_columns(illness, distribution, p_value, mri_p_value)
+
+    #df = load_txt(data_path)
+    df_significant_rows = load_txt_polars(significant_path, sep="\t")
+    df_significant_cols = load_txt_polars(significant_cols_path, sep="\t")
+    #df_significant_cols = df_significant_cols.rename(columns={df_significant_cols.columns[0]: "ID"})
+
+
+    # Handle legacy significant-columns files that were saved without feature names.
+    if "feature" not in df_significant_cols.columns:
+        create_significant_columns(illness, distribution, p_value, mri_p_value)
+        df_significant_cols = load_txt_polars(significant_cols_path, sep="\t")
+
+    df_significant_rows = df_significant_rows.sort_values(by="significant_count", ascending=False)
+    df_significant_cols = df_significant_cols.sort_values(by="significant_count", ascending=False)
+
+    rows_n = int(len(df_significant_rows) * row_ratio)
+    cols_n = int(len(df_significant_cols) * col_ratio)
+
+    if top_rows:
+        # all rows with significant count above treshold
+        if treshold is not None:
+            significant_rows = df_significant_rows[df_significant_rows["significant_count"] >= treshold]
+        #significant_rows = df_significant_rows.head(rows_n)
+    else:
+        if treshold is not None:
+            significant_rows = df_significant_rows[df_significant_rows["significant_count"] < treshold]
+        #significant_rows = df_significant_rows.tail(rows_n)
+
+    if top_cols:
+        significant_cols = df_significant_cols.head(cols_n)
+    else:
+        significant_cols = df_significant_cols.tail(cols_n)
+
+
+    significant_cols = significant_cols.reset_index(drop=True)
+    significant_cols = significant_cols.iloc[:, 0].tolist()
+
+    df_top = df[df["ID"].isin(significant_rows["ID"])]
+    rows_to_keep = ["ID", "Z"] + significant_cols
+    df_top = df_top[rows_to_keep]
+
+
+    return df_top
+
+def get_significant_no_data_leakage(df, illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1, top_rows=True, top_cols=True, mri_p_value=0.05):
+    #data_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt"
+
+    # check if data file exists
+    significant_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}_significant_rows_p{mri_p_value}.txt"
+    if not Path(significant_path).exists():
+        # create significant rows file if missing
+        create_significant_rows(illness, distribution, p_value, mri_p_value)
+    
+    significant_cols_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}_significant_columns_p{mri_p_value}.txt"
+    if not Path(significant_cols_path).exists():
+        # create significant columns file if missing
+        create_significant_columns(illness, distribution, p_value, mri_p_value)
+
+    #df = load_txt(data_path)
+    df_significant_rows = load_txt_polars(significant_path, sep="\t")
+    df_significant_cols = load_txt_polars(significant_cols_path, sep="\t")
+
+    # only select rows from significant rows that have ID in df
+    df_significant_rows = df_significant_rows[df_significant_rows["ID"].isin(df["ID"])]
+    #df_significant_cols = df_significant_cols.rename(columns={df_significant_cols.columns[0]: "ID"})
+
+
+    # Handle legacy significant-columns files that were saved without feature names.
+    if "feature" not in df_significant_cols.columns:
+        create_significant_columns(illness, distribution, p_value, mri_p_value)
+        df_significant_cols = load_txt_polars(significant_cols_path, sep="\t")
+
+    df_significant_rows = df_significant_rows.sort_values(by="significant_count", ascending=False)
+    df_significant_cols = df_significant_cols.sort_values(by="significant_count", ascending=False)
+
+    rows_n = int(len(df_significant_rows) * row_ratio)
+    cols_n = int(len(df_significant_cols) * col_ratio)
+
+    if top_rows:
+        significant_rows = df_significant_rows.head(rows_n)
+    else:
+        significant_rows = df_significant_rows.tail(rows_n)
+
+    if top_cols:
+        significant_cols = df_significant_cols.head(cols_n)
+    else:
+        significant_cols = df_significant_cols.tail(cols_n)
+
+
+    significant_cols = significant_cols.reset_index(drop=True)
+    significant_cols = significant_cols.iloc[:, 0].tolist()
+
+    df_top = df[df["ID"].isin(significant_rows["ID"])]
+    rows_to_keep = ["ID", "Z"] + significant_cols
+    df_top = df_top[rows_to_keep]
+
+    significant_treshold = significant_rows["significant_count"].iloc[rows_n-1] if top_rows else significant_rows["significant_count"].iloc[-rows_n]
+
+
+    return df_top, significant_treshold
+
 def get_significant(illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1, top_rows=True, top_cols=True, mri_p_value=0.05):
     data_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt"
 
@@ -82,18 +197,18 @@ def get_significant(illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1
     df_significant_rows = df_significant_rows.sort_values(by="significant_count", ascending=False)
     df_significant_cols = df_significant_cols.sort_values(by="significant_count", ascending=False)
 
-    top_rows = int(len(df_significant_rows) * row_ratio)
-    top_cols = int(len(df_significant_cols) * col_ratio)
+    rows_n = int(len(df_significant_rows) * row_ratio)
+    cols_n = int(len(df_significant_cols) * col_ratio)
 
     if top_rows:
-        significant_rows = df_significant_rows.head(top_rows)
+        significant_rows = df_significant_rows.head(rows_n)
     else:
-        significant_rows = df_significant_rows.tail(len(df_significant_rows) - top_rows)
-    
+        significant_rows = df_significant_rows.tail(rows_n)
+
     if top_cols:
-        significant_cols = df_significant_cols.head(top_cols)
+        significant_cols = df_significant_cols.head(cols_n)
     else:
-        significant_cols = df_significant_cols.tail(len(df_significant_cols) - top_cols)
+        significant_cols = df_significant_cols.tail(cols_n)
 
 
     significant_cols = significant_cols.reset_index(drop=True)
@@ -103,10 +218,8 @@ def get_significant(illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1
     rows_to_keep = ["ID", "Z"] + significant_cols
     df_top = df_top[rows_to_keep]
 
-    df_low = df[~df["ID"].isin(significant_rows["ID"])]
-    df_low = df_low[["ID", "Z"] + significant_cols]
 
-    return df_top, df_low
+    return df_top
 
 def get_significant_metrics(illness, distribution, p_value, row_ratio=0.2, col_ratio=0.1, top_rows=True, top_cols=True, mri_p_value=0.05):
     data_path = f"./data/sampled_p/{distribution}/sampled_{illness}_p{p_value}.txt"
@@ -175,7 +288,7 @@ def get_significant_metrics(illness, distribution, p_value, row_ratio=0.2, col_r
 
     return average_significant_per_row_count, average_significant_per_row_percentage, average_significant_per_col_count, average_significant_per_col_percentage, total_significant_entries, total_significant_percentage
 
-def load_illness_data(illness, in_notebook=True, polars=False, distribution="low", chunk_size=100000, total_chunks=None, p_value="0.001", row_ratio=0.2, col_ratio=0.1, top_rows=True, top_cols=True, mri_p_value=0.05):
+def load_illness_data(illness, in_notebook=True, polars=False, distribution="low", chunk_size=100000, total_chunks=None, p_value="0.001", row_ratio=1, col_ratio=1, top_rows=True, top_cols=True, mri_p_value=0.05):
     illnesses = {"MDD": "0.001", "ADHD": "0.001", "ASD": "0.001", "OCD": "0.001", "SCZ": "0.0001", "BIP": "0.001", "AZ": "0.001"}
 
     if row_ratio == 1 and col_ratio == 1:
@@ -196,7 +309,7 @@ def load_illness_data(illness, in_notebook=True, polars=False, distribution="low
         else:
             df_illness = load_txt(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
     else:
-        df_illness, _ = get_significant(illness, distribution, p_value, row_ratio=row_ratio, col_ratio=col_ratio, top_rows=top_rows, top_cols=top_cols, mri_p_value=mri_p_value)
+        df_illness = get_significant(illness, distribution, p_value, row_ratio=row_ratio, col_ratio=col_ratio, top_rows=top_rows, top_cols=top_cols, mri_p_value=mri_p_value)
 
     return df_illness
 

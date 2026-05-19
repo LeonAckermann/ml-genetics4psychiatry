@@ -1,0 +1,99 @@
+{
+  "hpo": {
+    "outer_scores": [
+      -0.08905315399169922,
+      0.008206427097320557,
+      0.02732694149017334,
+      0.11614561080932617,
+      0.03537231683731079
+    ],
+    "mean_r2": 0.01959962844848633,
+    "std_r2": 0.06567320297487748,
+    "fold_best_params": [
+      {
+        "alpha": 971.5796022050866
+      },
+      {
+        "alpha": 1356.3541710178176
+      },
+      {
+        "alpha": 530.1399908990878
+      },
+      {
+        "alpha": 5873.243772253653
+      },
+      {
+        "alpha": 8035.363790648912
+      }
+    ],
+    "search_space": {
+      "alpha": [
+        1e-05,
+        10000
+      ]
+    }
+  },
+  "experiment": "ridge_regression_AZ_p0.001_low",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ",
+        "ADHD",
+        "MDD",
+        "AZ",
+        "BIP",
+        "OCD"
+      ],
+      "p_clump": [
+        0.0001,
+        0.001,
+        0.01,
+        0.1
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "ridge_regression"
+    },
+    "hpo": {
+      "run": true,
+      "n_trials": 10,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "alpha": [
+          1e-05,
+          10000
+        ]
+      }
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260413_134526"
+}

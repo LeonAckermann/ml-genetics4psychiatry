@@ -45,7 +45,7 @@ def load_txt_polars(
     null_values: Optional[list[str]] = None,
     ignore_errors: bool = False,
     force_string_columns: Optional[list[str]] = None,
-    verbose: bool = True,
+    verbose: bool = False,
     return_polars: bool = False,
 ) -> pl.DataFrame | pd.DataFrame:
     """Load a TXT/CSV file using Polars.

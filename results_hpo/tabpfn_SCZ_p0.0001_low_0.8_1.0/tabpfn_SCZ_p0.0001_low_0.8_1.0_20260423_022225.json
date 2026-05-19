@@ -1,0 +1,120 @@
+{
+  "hpo": {
+    "r2_scores": [
+      0.06575435400009155,
+      0.09134817123413086,
+      0.1688576340675354,
+      0.011333584785461426,
+      0.08136367797851562
+    ],
+    "mean_r2": 0.08373148441314697,
+    "std_r2": 0.050743895926132036,
+    "pearson_r2_scores": [
+      0.06808566302061081,
+      0.09550804644823074,
+      0.17528799176216125,
+      0.03475513681769371,
+      0.08158762007951736
+    ],
+    "pearson_p_values": [
+      2.0334566215751693e-05,
+      2.7029579996451503e-07,
+      1.7630276578917137e-13,
+      0.002644253894686699,
+      2.6069462819577893e-06
+    ],
+    "mean_pearson_r2": 0.09104488790035248,
+    "std_pearson_r2": 0.04669458791613579,
+    "mean_pearson_p": 0.0005334931192919612,
+    "std_pearson_p": 0.0010554073378443718,
+    "spearman_rank_scores": [
+      0.03588433148620291,
+      0.08594456867174845,
+      0.09963929878771077,
+      0.0014493175154728938,
+      0.05306540109374076
+    ],
+    "spearman_p_values": [
+      0.0021578706963564075,
+      1.1378466896277814e-06,
+      5.458567918069094e-08,
+      0.5426937203194112,
+      0.00016884624488232316
+    ],
+    "mean_spearman_rank": 0.05519658351097516,
+    "std_spearman_rank": 0.035176319168927404,
+    "mean_spearman_p": 0.10900432593860376,
+    "std_spearman_p": 0.21684623290422675,
+    "fold_best_params": [],
+    "search_space": null
+  },
+  "experiment": "tabpfn_SCZ_p0.0001_low_0.8_1.0",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "target": "Z",
+      "distribution": [
+        "low"
+      ],
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "sampling": false,
+      "row_ratio": [
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0
+      ],
+      "col_ratio": [
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.05
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "tabpfn",
+      "finetune": true,
+      "device": "cuda",
+      "epochs": 30,
+      "learning_rate": "1e-5"
+    },
+    "hpo": {
+      "run": true,
+      "outer_cv": 5
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse",
+        "stderr"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260423_022225"
+}
