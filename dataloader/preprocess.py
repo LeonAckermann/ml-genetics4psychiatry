@@ -227,10 +227,19 @@ def load_txt(
 
 
 
-def preprocess(df, target, testsize, seed=42):
+def preprocess(df, target, testsize, seed=42, binary=False, p_value_binary=0.05):
     df = df.drop(columns=["ID"])  # Replace 'ID' with your actual ID column name
     X = df.drop(columns=[target])  # Replace 'target' with your actual target column name
     y = df[target]
+    if binary:
+        # convert z score to p value on the fly
+        from scipy.stats import norm
+        import numpy as np
+        y = norm.sf(abs(y)) * 2  # two-tailed p-value
+        y = (y <= p_value_binary).astype(int)  # binary labels: 1 if significant, 0 otherwise
+        # print class distribution 
+        print(f"Class distribution (binary with p <= {p_value_binary} as positive):")
+        print(sum(y)/len(y)*100, "%")  # print as percentage
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=testsize, random_state=seed)
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)

@@ -14,34 +14,41 @@ sampling:
 # Data settings
 data:
   illness: ["SCZ"]
-  p_clump: [0.0001]
+  p_clump: [0.01]
   distribution: ["low"]
   target: Z
   test_size: 0.2
-  n_splits: 10
+  n_splits: 5
   save_splits: true
   polars: true
   chunk_size: 10000
-  row_ratio: [1]
+  row_ratio: [0.1]
   col_ratio: [1]
   top_rows: true
   top_cols: true
   mri_p_value: 0.0001
 
 experiment:
-  run: false
-  type: A
-
+  run: true
+  
 # Model settings
 model:
-  name: lasso_regression
-  type: regression
-  p_value_binary: 0.05
+  name: residual_dnn
+  hidden_dims: [128,128, 64, 64, 32, 32]
+  output_dim: 1
+  dropout: 0.4
+  learning_rate: 0.00005
+  epochs: 50
+  batch_size: 32
+  patience: 20
+  type: "regression"
+  p_value_binary: 0.00001
+
 
 # Skip HPO and load best params from best_params folder
 # Hyperparameter optimization settings
 hpo:
-  run: true
+  run: false
   n_trials: 30
   outer_cv: 5
   inner_cv: 5
@@ -55,11 +62,9 @@ hpo:
     epochs: [20, 60]
     patience: [5, 20]
 
-
-
-load_best_params: true
+load_best_params: false
 
 # Evaluation settings
 evaluation:
-  metrics: [r2, mse]
+  metrics: [r2, mse, accuracy, precision, recall, f1]
   binary_threshold: null

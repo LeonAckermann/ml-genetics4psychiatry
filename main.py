@@ -98,6 +98,40 @@ def pipeline(cfg: dict) -> None:
 def build_model(cfg: dict):
     """Instantiate a model from the config dict."""
     name = cfg["model"]["name"]
+    model_type = cfg["model"].get("type", "regression")
+
+    if name == "logistic_regression":
+        from model import LogisticRegressionModel
+        return LogisticRegressionModel(
+            C=cfg["model"].get("C", 1.0),
+            random_state=cfg.get("seed", 42),
+            class_weight=cfg["model"].get("class_weight"),
+        )
+
+    elif name == "ridge_logistic_regression":
+        from model import RidgeLogisticRegressionModel
+        return RidgeLogisticRegressionModel(
+            C=cfg["model"].get("C", 1.0),
+            random_state=cfg.get("seed", 42),
+            class_weight=cfg["model"].get("class_weight"),
+        )
+
+    elif name == "lasso_logistic_regression":
+        from model import LassoLogisticRegressionModel
+        return LassoLogisticRegressionModel(
+            C=cfg["model"].get("C", 1.0),
+            random_state=cfg.get("seed", 42),
+            class_weight=cfg["model"].get("class_weight"),
+        )
+
+    elif name == "elastic_logistic_regression":
+        from model import ElasticLogisticRegressionModel
+        return ElasticLogisticRegressionModel(
+            C=cfg["model"].get("C", 1.0),
+            l1_ratio=cfg["model"].get("l1_ratio", 0.5),
+            random_state=cfg.get("seed", 42),
+            class_weight=cfg["model"].get("class_weight"),
+        )
 
     if name == "linear_regression":
         from model import LinearRegressionModel
@@ -117,6 +151,17 @@ def build_model(cfg: dict):
             best_alpha=cfg["model"].get("best_alpha", 0.06951927961775606)
         ) # hyperparameters from previous tuning in notebook
     elif name == "tabpfn":
+        if model_type == "binary_classification":
+            from model import TabPFNBinaryClassifierModel, FinetunedTabPFNBinaryClassifierModel
+            if cfg["model"].get("finetune", False):
+                return FinetunedTabPFNBinaryClassifierModel(
+                    random_state=cfg.get("seed", 42),
+                    device=cfg["model"].get("device", "cuda"),
+                    epochs=cfg["model"].get("epochs", 30),
+                    learning_rate=cfg["model"].get("learning_rate", 1e-5),
+                )
+            return TabPFNBinaryClassifierModel(random_state=cfg.get("seed", 42))
+
         from model import TabPFNModel
         if cfg["model"].get("finetune", False):
             from model import FinetunedTabPFNModel
@@ -124,6 +169,22 @@ def build_model(cfg: dict):
         return TabPFNModel(random_state=cfg.get("seed", 42))
 
     elif name == "xgboost":
+        if model_type == "binary_classification":
+            from model import XGBoostBinaryClassifierModel
+            return XGBoostBinaryClassifierModel(
+                random_state=cfg.get("seed", 42),
+                n_estimators=cfg["model"].get("n_estimators", 100),
+                max_depth=cfg["model"].get("max_depth", 6),
+                learning_rate=cfg["model"].get("learning_rate", 0.1),
+                subsample=cfg["model"].get("subsample", 0.8),
+                colsample_bytree=cfg["model"].get("colsample_bytree", 0.8),
+                reg_alpha=cfg["model"].get("reg_alpha", 0.0),
+                reg_lambda=cfg["model"].get("reg_lambda", 1.0),
+                min_child_weight=cfg["model"].get("min_child_weight", 1.0),
+                gamma=cfg["model"].get("gamma", 0.0),
+                scale_pos_weight=cfg["model"].get("scale_pos_weight"),
+            )
+
         from model import XGBoostTreeModel
         return XGBoostTreeModel(random_state=cfg.get("seed", 42), n_estimators=cfg["model"].get("n_estimators", 100), max_depth=cfg["model"].get("max_depth", 6), learning_rate=cfg["model"].get("learning_rate", 0.1), subsample=cfg["model"].get("subsample", 0.8), colsample_bytree=cfg["model"].get("colsample_bytree", 0.8))
 
@@ -467,7 +528,7 @@ def nested_cv_xgboost(X, y, outer_cv=5, inner_cv=3, n_trials=50, search_space=No
     )
 
 
-def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_trials=50, search_space=None, val_size=0.1, best_params_list=None):
+def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_trials=50, search_space=None, val_size=0.1, best_params_list=None, cfg=None):
     """Perform nested cross-validation using Optuna for DNN or ResidualDNN.
 
     If best_params_list is provided, skip HPO and use those params directly.
@@ -526,9 +587,100 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
     spearman_corr_scores = []
     spearman_p_values = []
     fold_best_params = []
+    accuracy_scores = []
+    precision_scores = []
+    recall_scores = []
+    f1_scores = []
+    balanced_accuracy_scores = []
+    fold_label_distributions = []
+
+    model_type = cfg.get("model", {}).get("type", "regression") if cfg else "regression"
+    is_binary_task = model_type == "binary_classification"
+
+    def label_distribution(values):
+        values_arr = np.asarray(values).ravel()
+        if is_binary_task:
+            values_arr = values_arr.astype(int)
+            counts = np.bincount(values_arr, minlength=2)
+            total = int(counts.sum())
+            return {
+                "counts": {"negative": int(counts[0]), "positive": int(counts[1])},
+                "fractions": {
+                    "negative": float(counts[0] / total) if total else 0.0,
+                    "positive": float(counts[1] / total) if total else 0.0,
+                },
+                "total": total,
+            }
+
+        negative_count = int(np.sum(values_arr < 0))
+        positive_count = int(np.sum(values_arr >= 0))
+        total = negative_count + positive_count
+        return {
+            "counts": {"negative": negative_count, "positive": positive_count},
+            "fractions": {
+                "negative": float(negative_count / total) if total else 0.0,
+                "positive": float(positive_count / total) if total else 0.0,
+            },
+            "total": total,
+        }
+
+    def balance_training_split(X_split, y_split):
+        y_arr_local = np.asarray(y_split).ravel()
+        if is_binary_task:
+            negative_idx = np.where(y_arr_local == 0)[0]
+            positive_idx = np.where(y_arr_local == 1)[0]
+        else:
+            negative_idx = np.where(y_arr_local < 0)[0]
+            positive_idx = np.where(y_arr_local >= 0)[0]
+
+        if len(negative_idx) == 0 or len(positive_idx) == 0:
+            return X_split, y_split
+
+        n_samples_per_class = min(len(negative_idx), len(positive_idx))
+        selected_negative_idx = np.random.choice(negative_idx, n_samples_per_class, replace=False)
+        selected_positive_idx = np.random.choice(positive_idx, n_samples_per_class, replace=False)
+        selected_idx = np.concatenate([selected_negative_idx, selected_positive_idx])
+        return X_split[selected_idx], y_split[selected_idx]
+
+    def score_binary_predictions(y_true, preds):
+        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, balanced_accuracy_score, confusion_matrix
+
+        y_true_bin = np.asarray(y_true).astype(int).ravel()
+        preds_arr = np.asarray(preds).ravel()
+        threshold = 0.5 if np.all((preds_arr >= 0.0) & (preds_arr <= 1.0)) else 0.0
+        y_pred_bin = (preds_arr >= threshold).astype(int)
+
+        if np.unique(y_true_bin).size > 1 and np.unique(preds_arr).size > 1:
+            pearson_r, pearson_p = pearsonr(y_true_bin, preds_arr)
+            if np.isnan(pearson_r):
+                pearson_r = 0.0
+                pearson_p = 1.0
+            pearson_r2 = float(pearson_r ** 2)
+        else:
+            pearson_r2 = 0.0
+            pearson_p = 1.0
+
+        tn, fp, fn, tp = confusion_matrix(y_true_bin, y_pred_bin, labels=[0, 1]).ravel()
+        return {
+            "threshold": float(threshold),
+            "accuracy": float(accuracy_score(y_true_bin, y_pred_bin)),
+            "precision": float(precision_score(y_true_bin, y_pred_bin, zero_division=0)),
+            "recall": float(recall_score(y_true_bin, y_pred_bin, zero_division=0)),
+            "f1": float(f1_score(y_true_bin, y_pred_bin, zero_division=0)),
+            "balanced_accuracy": float(balanced_accuracy_score(y_true_bin, y_pred_bin)),
+            "pearson_r2": pearson_r2,
+            "pearson_p": float(pearson_p),
+            "tn": int(tn),
+            "fp": int(fp),
+            "fn": int(fn),
+            "tp": int(tp),
+            "predicted_positive_count": int(np.sum(y_pred_bin == 1)),
+            "predicted_negative_count": int(np.sum(y_pred_bin == 0)),
+        }
 
     optuna.logging.set_verbosity(optuna.logging.INFO)
 
+    balance = False
     # If best_params_list is provided, skip HPO
     if best_params_list is not None:
         print(f"Using pre-loaded best parameters ({len(best_params_list)} folds), skipping HPO")
@@ -545,31 +697,19 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
             random_state=42,
             )
 
-            # balance the training set to have equal number of samples with y<0 and y>=0
-            #train_negative_idx = np.where(y_train_outer < 0)[0]
-            #train_positive_idx = np.where(y_train_outer >= 0)[0]
-            #n_samples_per_class = min(len(train_negative_idx), len(train_positive_idx))
-            #selected_negative_idx = np.random.choice(train_negative_idx, n_samples_per_class, replace=False)
-            #selected_positive_idx = np.random.choice(train_positive_idx, n_samples_per_class, replace=False)
-            #selected_idx = np.concatenate([selected_negative_idx, selected_positive_idx])
-            #X_train_outer = X_train_outer[selected_idx]
-            #y_train_outer = y_train_outer[selected_idx]
-            ## print the class distribution after balancing
-            #print(f"  Training set class distribution after balancing: y<0: {np.sum(y_train_outer < 0)}, y>=0: {np.sum(y_train_outer >= 0)}")
-#
-            ## balance the test set to have equal number of samples with y<0 and y>=0
-            #test_negative_idx = np.where(y_test_outer < 0)[0]
-            #test_positive_idx = np.where(y_test_outer >= 0)[0]
-            #n_samples_per_class = min(len(test_negative_idx), len(test_positive_idx))
-            #selected_negative_idx = np.random.choice(test_negative_idx, n_samples_per_class, replace=False)
-            #selected_positive_idx = np.random.choice(test_positive_idx, n_samples_per_class, replace=False)
-            #selected_idx = np.concatenate([selected_negative_idx, selected_positive_idx])
-            #X_test_outer = X_test_outer[selected_idx]
-            #y_test_outer = y_test_outer[selected_idx]
-            ## print the class distribution after balancing
-            #print(f"  Test set class distribution after balancing: y<0: {np.sum(y_test_outer < 0)}, y>=0: {np.sum(y_test_outer >= 0)}") 
+            fold_label_distributions.append({
+                "fold": fold + 1,
+                "train": label_distribution(y_train_outer),
+                "validation": label_distribution(y_val_outer),
+                "test": label_distribution(y_test_outer),
+            })
 
-            
+            if is_binary_task and balance:
+                X_train_outer, y_train_outer = balance_training_split(X_train_outer, y_train_outer)
+                print(
+                    f"  Training set class distribution after balancing: class 0: {np.sum(np.asarray(y_train_outer).ravel() == 0)}, "
+                    f"class 1: {np.sum(np.asarray(y_train_outer).ravel() == 1)}"
+                )
 
             # Get params for this fold
             best_params = best_params_list[fold]
@@ -592,6 +732,8 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
             # Skip validation split - train on full training set, evaluate on test
             print(f"  Training on {len(X_train_outer)} samples, evaluating on {len(X_test_outer)} test samples")
 
+            cfg["verbose"] = False
+
             final_preds = train_dnn(
                 final_model_cfg,
                 X_train_outer,
@@ -600,35 +742,52 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
                 y_val_outer,
                 X_test_outer,
                 y_test_outer,
-                {'verbose': False},
+                cfg=cfg,
             )
 
-            #final_preds = (final_preds - np.mean(final_preds)) / np.std(final_preds) * np.std(y_test_outer) + np.mean(y_test_outer)  # scale preds to have same mean and std as true values for fair evaluation
-            score = r2_score(y_test_outer, final_preds)
+            if is_binary_task:
+                metrics = score_binary_predictions(y_test_outer, final_preds)
+                outer_scores.append(metrics["f1"])
+                accuracy_scores.append(metrics["accuracy"])
+                precision_scores.append(metrics["precision"])
+                recall_scores.append(metrics["recall"])
+                f1_scores.append(metrics["f1"])
+                balanced_accuracy_scores.append(metrics["balanced_accuracy"])
+                pearson_r2_scores.append(metrics["pearson_r2"])
+                pearson_p_values.append(metrics["pearson_p"])
+                print(f"  Fold {fold + 1} Accuracy: {metrics['accuracy']:.4f}")
+                print(f"  Fold {fold + 1} Precision: {metrics['precision']:.4f}")
+                print(f"  Fold {fold + 1} Recall: {metrics['recall']:.4f}")
+                print(f"  Fold {fold + 1} F1 Score: {metrics['f1']:.4f}")
+                print(f"  Fold {fold + 1} Balanced Accuracy: {metrics['balanced_accuracy']:.4f}")
+                print(f"  Fold {fold + 1} Pearson r²: {metrics['pearson_r2']:.4f}")
+            else:
+                #final_preds = (final_preds - np.mean(final_preds)) / np.std(final_preds) * np.std(y_test_outer) + np.mean(y_test_outer)  # scale preds to have same mean and std as true values for fair evaluation
+                score = r2_score(y_test_outer, final_preds)
 
-            # Calculate Pearson correlation
-            pearson_r, pearson_p = pearsonr(y_test_outer, final_preds)
-            pearson_r2 = pearson_r ** 2
-            
-            # Replace NaN with 0 if predictions are constant (correlation undefined)
-            if np.isnan(pearson_r):
-                pearson_r = 0.0
-                pearson_r2 = 0.0
-                pearson_p = 1.0
+                # Calculate Pearson correlation
+                pearson_r, pearson_p = pearsonr(y_test_outer, final_preds)
+                pearson_r2 = pearson_r ** 2
+                
+                # Replace NaN with 0 if predictions are constant (correlation undefined)
+                if np.isnan(pearson_r):
+                    pearson_r = 0.0
+                    pearson_r2 = 0.0
+                    pearson_p = 1.0
 
-            # Calculate Spearman rank correlation
-            spearman_rho, spearman_p = spearmanr(y_test_outer, final_preds)
-            if np.isnan(spearman_rho):
-                spearman_rho = 0.0
-                spearman_p = 1.0
+                # Calculate Spearman rank correlation
+                spearman_rho, spearman_p = spearmanr(y_test_outer, final_preds)
+                if np.isnan(spearman_rho):
+                    spearman_rho = 0.0
+                    spearman_p = 1.0
 
-            outer_scores.append(score)
-            pearson_r2_scores.append(pearson_r2)
-            pearson_corr_scores.append(pearson_r)
-            pearson_p_values.append(pearson_p)
-            spearman_rank_scores.append(spearman_rho ** 2)
-            spearman_corr_scores.append(spearman_rho)
-            spearman_p_values.append(spearman_p)
+                outer_scores.append(score)
+                pearson_r2_scores.append(pearson_r2)
+                pearson_corr_scores.append(pearson_r)
+                pearson_p_values.append(pearson_p)
+                spearman_rank_scores.append(spearman_rho ** 2)
+                spearman_corr_scores.append(spearman_rho)
+                spearman_p_values.append(spearman_p)
             fold_best_params.append(best_params)
 
             # plot residual distribution and true vs. predicted values for this fold
@@ -656,13 +815,14 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
             #plt.axhline(0, color='r', linestyle='--')
             #plt.show()
 
-            print(f"  Fold {fold + 1} R² Score: {score:.4f}")
-            print(f"  Fold {fold + 1} Pearson r²: {pearson_r2:.4f}")
-            print(f"  Fold {fold + 1} Pearson p-value: {pearson_p:.4e}")
-            print(f"  Fold {fold + 1} Spearman rank: {spearman_rho ** 2:.4f}")
-            print(f"  Fold {fold + 1} Spearman p-value: {spearman_p:.4e}\n")
-            #print standard deviation of preds, true values, and residuals for this fold
-            print(f"  Fold {fold + 1} Preds std: {np.std(final_preds):.4f}, True std: {np.std(y_test_outer):.4f}, Residuals std: {np.std(residuals):.4f}")  
+            if not is_binary_task:
+                print(f"  Fold {fold + 1} R² Score: {score:.4f}")
+                print(f"  Fold {fold + 1} Pearson r²: {pearson_r2:.4f}")
+                print(f"  Fold {fold + 1} Pearson p-value: {pearson_p:.4e}")
+                print(f"  Fold {fold + 1} Spearman rank: {spearman_rho ** 2:.4f}")
+                print(f"  Fold {fold + 1} Spearman p-value: {spearman_p:.4e}\n")
+                #print standard deviation of preds, true values, and residuals for this fold
+                print(f"  Fold {fold + 1} Preds std: {np.std(final_preds):.4f}, True std: {np.std(y_test_outer):.4f}, Residuals std: {np.std(residuals):.4f}")  
 
 
         mean_score = float(np.mean(outer_scores))
@@ -756,8 +916,12 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
                 X_val_inner = scaler.transform(X_val_inner)
                 X_test_inner = scaler.transform(X_test_inner)
 
+                #if is_binary_task:
+                #    X_train_inner, y_train_inner = balance_training_split(X_train_inner, y_train_inner)
+
                 # Clone config for each inner fold
                 inner_model_cfg = model_cfg.copy()
+                cfg["verbose"] = False
                 preds = train_dnn(
                     inner_model_cfg,
                     X_train=X_train_inner,
@@ -766,14 +930,27 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
                     y_val=y_val_inner,
                     X_test=X_test_inner,
                     y_test=y_test_inner,
-                    cfg={'verbose': False},
+                    cfg=cfg,
                 )
-                val_score = r2_score(y_test_inner, preds)
-                inner_scores.append(val_score)
-                print(f"        Inner fold {inner_fold + 1} R2: {val_score:.4f}")
+                if is_binary_task:
+                    inner_metrics = score_binary_predictions(y_test_inner, preds)
+                    val_score = inner_metrics["f1"]
+                    inner_scores.append(val_score)
+                    print(f"        Inner fold {inner_fold + 1} Accuracy: {inner_metrics['accuracy']:.4f}")
+                    print(f"        Inner fold {inner_fold + 1} Precision: {inner_metrics['precision']:.4f}")
+                    print(f"        Inner fold {inner_fold + 1} Recall: {inner_metrics['recall']:.4f}")
+                    print(f"        Inner fold {inner_fold + 1} F1: {inner_metrics['f1']:.4f}")
+                    print(f"        Inner fold {inner_fold + 1} Balanced Accuracy: {inner_metrics['balanced_accuracy']:.4f}")
+                else:
+                    val_score = r2_score(y_test_inner, preds)
+                    inner_scores.append(val_score)
+                    print(f"        Inner fold {inner_fold + 1} R2: {val_score:.4f}")
 
             mean_inner_score = float(np.mean(inner_scores))
-            print(f"    Trial {trial.number + 1} mean inner R2: {mean_inner_score:.4f}")
+            if is_binary_task:
+                print(f"    Trial {trial.number + 1} mean inner F1: {mean_inner_score:.4f}")
+            else:
+                print(f"    Trial {trial.number + 1} mean inner R2: {mean_inner_score:.4f}")
             return mean_inner_score
 
         sampler = TPESampler(seed=42 + fold)
@@ -807,6 +984,16 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
         X_train_final = scaler.fit_transform(X_train_final)
         X_val_final = scaler.transform(X_val_final)
         X_test_outer = scaler.transform(X_test_outer)
+
+        fold_label_distributions.append({
+            "fold": fold + 1,
+            "train": label_distribution(y_train_final),
+            "validation": label_distribution(y_val_final),
+            "test": label_distribution(y_test_outer),
+        })
+
+        if is_binary_task:
+            X_train_final, y_train_final = balance_training_split(X_train_final, y_train_final)
         
         print(f"  Training final DNN on outer training set with {len(X_train_final)} train / {len(X_val_final)} val samples")
 
@@ -818,57 +1005,113 @@ def nested_cv_dnn(X, y, model_name='residual_dnn', outer_cv=5, inner_cv=3, n_tri
             y_val_final,
             X_test_outer,
             y_test_outer,
-            {'model': final_model_cfg},
+            cfg=cfg,
         )
-        score = r2_score(y_test_outer, final_preds)
-        outer_scores.append(score)
-        pearson_r, pearson_p = pearsonr(y_test_outer, final_preds)
-        pearson_r2 = pearson_r ** 2
-        pearson_r2_scores.append(pearson_r2)
-        pearson_corr_scores.append(pearson_r)
-        pearson_p_values.append(pearson_p)
-        spearman_rho, spearman_p = spearmanr(y_test_outer, final_preds)
-        spearman_corr_scores.append(spearman_rho)
-        spearman_rank_scores.append(spearman_rho ** 2)
-        spearman_p_values.append(spearman_p)
-        print(f"Outer Fold {fold + 1} R2 Score: {score:.4f}")
-        print(f"Outer Fold {fold + 1} Pearson r: {pearson_r:.4f}")
+        if is_binary_task:
+            metrics = score_binary_predictions(y_test_outer, final_preds)
+            outer_scores.append(metrics["f1"])
+            accuracy_scores.append(metrics["accuracy"])
+            precision_scores.append(metrics["precision"])
+            recall_scores.append(metrics["recall"])
+            f1_scores.append(metrics["f1"])
+            balanced_accuracy_scores.append(metrics["balanced_accuracy"])
+            pearson_r2_scores.append(metrics["pearson_r2"])
+            pearson_p_values.append(metrics["pearson_p"])
+            print(f"Outer Fold {fold + 1} Accuracy: {metrics['accuracy']:.4f}")
+            print(f"Outer Fold {fold + 1} Precision: {metrics['precision']:.4f}")
+            print(f"Outer Fold {fold + 1} Recall: {metrics['recall']:.4f}")
+            print(f"Outer Fold {fold + 1} F1 Score: {metrics['f1']:.4f}")
+            print(f"Outer Fold {fold + 1} Balanced Accuracy: {metrics['balanced_accuracy']:.4f}")
+            print(f"Outer Fold {fold + 1} Pearson r²: {metrics['pearson_r2']:.4f}")
+        else:
+            score = r2_score(y_test_outer, final_preds)
+            outer_scores.append(score)
+            pearson_r, pearson_p = pearsonr(y_test_outer, final_preds)
+            pearson_r2 = pearson_r ** 2
+            pearson_r2_scores.append(pearson_r2)
+            pearson_corr_scores.append(pearson_r)
+            pearson_p_values.append(pearson_p)
+            spearman_rho, spearman_p = spearmanr(y_test_outer, final_preds)
+            spearman_corr_scores.append(spearman_rho)
+            spearman_rank_scores.append(spearman_rho ** 2)
+            spearman_p_values.append(spearman_p)
+            print(f"Outer Fold {fold + 1} R2 Score: {score:.4f}")
+            print(f"Outer Fold {fold + 1} Pearson r: {pearson_r:.4f}")
         print(f"Best Params for Fold {fold + 1}: {best_params}\n")
 
-    mean_score = np.mean(outer_scores)
-    std_score = np.std(outer_scores)
-    mean_pearson_corr = np.nanmean(pearson_corr_scores)
-    std_pearson_corr = np.nanstd(pearson_corr_scores)
-    mean_pearson_r2 = np.nanmean(pearson_r2_scores)
-    std_pearson_r2 = np.nanstd(pearson_r2_scores)
-    mean_pearson_p = np.nanmean(pearson_p_values)
-    std_pearson_p = np.nanstd(pearson_p_values)
-    mean_spearman_corr = np.nanmean(spearman_corr_scores)
-    std_spearman_corr = np.nanstd(spearman_corr_scores)
-    mean_spearman_rank = np.nanmean(spearman_rank_scores)
-    std_spearman_rank = np.nanstd(spearman_rank_scores)
-    mean_spearman_p = np.nanmean(spearman_p_values)
-    std_spearman_p = np.nanstd(spearman_p_values)
+    if is_binary_task:
+        mean_score = float(np.mean(outer_scores))
+        std_score = float(np.std(outer_scores))
+        mean_accuracy = float(np.mean(accuracy_scores))
+        std_accuracy = float(np.std(accuracy_scores))
+        mean_precision = float(np.mean(precision_scores))
+        std_precision = float(np.std(precision_scores))
+        mean_recall = float(np.mean(recall_scores))
+        std_recall = float(np.std(recall_scores))
+        mean_f1 = float(np.mean(f1_scores))
+        std_f1 = float(np.std(f1_scores))
+        mean_balanced_accuracy = float(np.mean(balanced_accuracy_scores))
+        std_balanced_accuracy = float(np.std(balanced_accuracy_scores))
+        mean_pearson_r2 = float(np.nanmean(pearson_r2_scores))
+        std_pearson_r2 = float(np.nanstd(pearson_r2_scores))
+        mean_pearson_p = float(np.nanmean(pearson_p_values))
+        std_pearson_p = float(np.nanstd(pearson_p_values))
 
-    print("=== Final Nested CV Results ===")
-    print(f"Average R2: {mean_score:.4f} (+/- {std_score:.4f})")
-    print(f"Average Pearson r: {mean_pearson_corr:.4f} (+/- {std_pearson_corr:.4f})")
-    print(f"Average Pearson r²: {mean_pearson_r2:.4f} (+/- {std_pearson_r2:.4f})")
-    print(f"Average Pearson p-value: {mean_pearson_p:.4e} (+/- {std_pearson_p:.4e})")
-    print(f"Average Spearman rho: {mean_spearman_corr:.4f} (+/- {std_spearman_corr:.4f})")
-    print(f"Average Spearman rho²: {mean_spearman_rank:.4f} (+/- {std_spearman_rank:.4f})")
-    print(f"Average Spearman p-value: {mean_spearman_p:.4e} (+/- {std_spearman_p:.4e})")
+        print("=== Final Nested CV Results ===")
+        print(f"Average F1: {mean_score:.4f} (+/- {std_score:.4f})")
+        print(f"Average Accuracy: {mean_accuracy:.4f} (+/- {std_accuracy:.4f})")
+        print(f"Average Precision: {mean_precision:.4f} (+/- {std_precision:.4f})")
+        print(f"Average Recall: {mean_recall:.4f} (+/- {std_recall:.4f})")
+        print(f"Average Balanced Accuracy: {mean_balanced_accuracy:.4f} (+/- {std_balanced_accuracy:.4f})")
+        print(f"Average Pearson r²: {mean_pearson_r2:.4f} (+/- {std_pearson_r2:.4f})")
+        print(f"Average Pearson p-value: {mean_pearson_p:.4e} (+/- {std_pearson_p:.4e})")
 
-    return (
-        outer_scores,
-        pearson_corr_scores,
-        pearson_r2_scores,
-        pearson_p_values,
-        spearman_corr_scores,
-        spearman_rank_scores,
-        spearman_p_values,
-        fold_best_params,
-    )
+        return (
+            f1_scores,
+            accuracy_scores,
+            precision_scores,
+            recall_scores,
+            balanced_accuracy_scores,
+            pearson_r2_scores,
+            pearson_p_values,
+            fold_best_params,
+            fold_label_distributions,
+        )
+    else:
+        mean_score = np.mean(outer_scores)
+        std_score = np.std(outer_scores)
+        mean_pearson_corr = np.nanmean(pearson_corr_scores)
+        std_pearson_corr = np.nanstd(pearson_corr_scores)
+        mean_pearson_r2 = np.nanmean(pearson_r2_scores)
+        std_pearson_r2 = np.nanstd(pearson_r2_scores)
+        mean_pearson_p = np.nanmean(pearson_p_values)
+        std_pearson_p = np.nanstd(pearson_p_values)
+        mean_spearman_corr = np.nanmean(spearman_corr_scores)
+        std_spearman_corr = np.nanstd(spearman_corr_scores)
+        mean_spearman_rank = np.nanmean(spearman_rank_scores)
+        std_spearman_rank = np.nanstd(spearman_rank_scores)
+        mean_spearman_p = np.nanmean(spearman_p_values)
+        std_spearman_p = np.nanstd(spearman_p_values)
+
+        print("=== Final Nested CV Results ===")
+        print(f"Average R2: {mean_score:.4f} (+/- {std_score:.4f})")
+        print(f"Average Pearson r: {mean_pearson_corr:.4f} (+/- {std_pearson_corr:.4f})")
+        print(f"Average Pearson r²: {mean_pearson_r2:.4f} (+/- {std_pearson_r2:.4f})")
+        print(f"Average Pearson p-value: {mean_pearson_p:.4e} (+/- {std_pearson_p:.4e})")
+        print(f"Average Spearman rho: {mean_spearman_corr:.4f} (+/- {std_spearman_corr:.4f})")
+        print(f"Average Spearman rho²: {mean_spearman_rank:.4f} (+/- {std_spearman_rank:.4f})")
+        print(f"Average Spearman p-value: {mean_spearman_p:.4e} (+/- {std_spearman_p:.4e})")
+
+        return (
+            outer_scores,
+            pearson_corr_scores,
+            pearson_r2_scores,
+            pearson_p_values,
+            spearman_corr_scores,
+            spearman_rank_scores,
+            spearman_p_values,
+            fold_best_params,
+        )
 
 
 def nested_cv_regularized_regression(X, y, model_name='lasso_regression', outer_cv=5, inner_cv=3, n_trials=50, search_space=None, best_params_list=None):
@@ -1242,6 +1485,123 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
 
     If best_params_list is provided, skip HPO and use those params directly.
     """
+    model_type = cfg.get("model", {}).get("type", "regression") if cfg else "regression"
+
+    binary_model_names = {
+        "logistic_regression",
+        "ridge_logistic_regression",
+        "lasso_logistic_regression",
+        "elastic_logistic_regression",
+        "xgboost",
+        "tabpfn",
+    }
+
+    if model_type == "binary_classification" and model_name in binary_model_names:
+        (
+            outer_scores,
+            accuracy_scores,
+            precision_scores,
+            recall_scores,
+            f1_scores,
+            balanced_accuracy_scores,
+            pearson_r2_scores,
+            pearson_p_values,
+            fold_best_params,
+            fold_label_distributions,
+        ) = nested_cv_binary_classifier_models(
+            X,
+            y,
+            model_name=model_name,
+            outer_cv=outer_cv,
+            inner_cv=inner_cv,
+            n_trials=n_trials,
+            search_space=search_space,
+            best_params_list=best_params_list,
+            cfg=cfg,
+        )
+        return {
+            'r2_scores': f1_scores,
+            'mean_r2': float(np.mean(f1_scores)),
+            'std_r2': float(np.std(f1_scores)),
+            'accuracy_scores': accuracy_scores,
+            'precision_scores': precision_scores,
+            'recall_scores': recall_scores,
+            'f1_scores': f1_scores,
+            'balanced_accuracy_scores': balanced_accuracy_scores,
+            'mean_accuracy': float(np.mean(accuracy_scores)),
+            'std_accuracy': float(np.std(accuracy_scores)),
+            'mean_precision': float(np.mean(precision_scores)),
+            'std_precision': float(np.std(precision_scores)),
+            'mean_recall': float(np.mean(recall_scores)),
+            'std_recall': float(np.std(recall_scores)),
+            'mean_f1': float(np.mean(f1_scores)),
+            'std_f1': float(np.std(f1_scores)),
+            'mean_balanced_accuracy': float(np.mean(balanced_accuracy_scores)),
+            'std_balanced_accuracy': float(np.std(balanced_accuracy_scores)),
+            'pearson_r2_scores': pearson_r2_scores,
+            'pearson_p_values': pearson_p_values,
+            'mean_pearson_r2': float(np.mean(pearson_r2_scores)),
+            'std_pearson_r2': float(np.std(pearson_r2_scores)),
+            'mean_pearson_p': float(np.mean(pearson_p_values)),
+            'std_pearson_p': float(np.std(pearson_p_values)),
+            'fold_best_params': fold_best_params,
+            'fold_label_distributions': fold_label_distributions,
+            'search_space': search_space,
+        }
+
+    if model_name in ["logistic_regression", "ridge_logistic_regression", "lasso_logistic_regression", "elastic_logistic_regression"]:
+        (
+            outer_scores,
+            accuracy_scores,
+            precision_scores,
+            recall_scores,
+            f1_scores,
+            balanced_accuracy_scores,
+            pearson_r2_scores,
+            pearson_p_values,
+            fold_best_params,
+            fold_label_distributions,
+        ) = nested_cv_binary_logistic_regression(
+            X,
+            y,
+            model_name=model_name,
+            outer_cv=outer_cv,
+            inner_cv=inner_cv,
+            n_trials=n_trials,
+            search_space=search_space,
+            best_params_list=best_params_list,
+            cfg=cfg,
+        )
+        return {
+            'r2_scores': outer_scores,
+            'mean_r2': float(np.mean(outer_scores)),
+            'std_r2': float(np.std(outer_scores)),
+            'accuracy_scores': accuracy_scores,
+            'precision_scores': precision_scores,
+            'recall_scores': recall_scores,
+            'f1_scores': f1_scores,
+            'balanced_accuracy_scores': balanced_accuracy_scores,
+            'mean_accuracy': float(np.mean(accuracy_scores)),
+            'std_accuracy': float(np.std(accuracy_scores)),
+            'mean_precision': float(np.mean(precision_scores)),
+            'std_precision': float(np.std(precision_scores)),
+            'mean_recall': float(np.mean(recall_scores)),
+            'std_recall': float(np.std(recall_scores)),
+            'mean_f1': float(np.mean(f1_scores)),
+            'std_f1': float(np.std(f1_scores)),
+            'mean_balanced_accuracy': float(np.mean(balanced_accuracy_scores)),
+            'std_balanced_accuracy': float(np.std(balanced_accuracy_scores)),
+            'pearson_r2_scores': pearson_r2_scores,
+            'pearson_p_values': pearson_p_values,
+            'mean_pearson_r2': float(np.mean(pearson_r2_scores)),
+            'std_pearson_r2': float(np.std(pearson_r2_scores)),
+            'mean_pearson_p': float(np.mean(pearson_p_values)),
+            'std_pearson_p': float(np.std(pearson_p_values)),
+            'fold_best_params': fold_best_params,
+            'fold_label_distributions': fold_label_distributions,
+            'search_space': search_space,
+        }
+
     if model_name == "xgboost":
         (
             outer_scores,
@@ -1260,7 +1620,26 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             n_trials=n_trials,
             search_space=search_space,
             best_params_list=best_params_list,
+            cfg=cfg,
         )
+        if model_type == "binary_classification":
+            return {
+                'r2_scores': outer_scores,
+                'mean_r2': float(np.mean(outer_scores)),
+                'std_r2': float(np.std(outer_scores)),
+                'accuracy_scores': pearson_corr_scores,
+                'precision_scores': pearson_r2_scores,
+                'recall_scores': pearson_p_values,
+                'f1_scores': spearman_corr_scores,
+                'balanced_accuracy_scores': spearman_rank_scores,
+                'mean_pearson_r2': float(np.mean(pearson_r2_scores)),
+                'std_pearson_r2': float(np.std(pearson_r2_scores)),
+                'mean_pearson_p': float(np.mean(pearson_p_values)),
+                'std_pearson_p': float(np.std(pearson_p_values)),
+                'fold_best_params': fold_best_params,
+                'search_space': search_space,
+            }
+
         return {
             'r2_scores': outer_scores,
             'mean_r2': float(np.mean(outer_scores)),
@@ -1287,6 +1666,59 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             'search_space': search_space,
         }
     elif model_name in ["dnn", "residual_dnn"]:
+        if cfg and cfg.get("model", {}).get("type") == "binary_classification":
+            (
+                f1_scores,
+                accuracy_scores,
+                precision_scores,
+                recall_scores,
+                balanced_accuracy_scores,
+                pearson_r2_scores,
+                pearson_p_values,
+                fold_best_params,
+                fold_label_distributions,
+            ) = nested_cv_dnn(
+                X,
+                y,
+                model_name=model_name,
+                outer_cv=outer_cv,
+                inner_cv=inner_cv,
+                n_trials=n_trials,
+                search_space=search_space,
+                val_size=0.1,
+                best_params_list=best_params_list,
+                cfg=cfg,
+            )
+            return {
+                'r2_scores': f1_scores,
+                'mean_r2': float(np.mean(f1_scores)),
+                'std_r2': float(np.std(f1_scores)),
+                'accuracy_scores': accuracy_scores,
+                'precision_scores': precision_scores,
+                'recall_scores': recall_scores,
+                'f1_scores': f1_scores,
+                'balanced_accuracy_scores': balanced_accuracy_scores,
+                'mean_accuracy': float(np.mean(accuracy_scores)),
+                'std_accuracy': float(np.std(accuracy_scores)),
+                'mean_precision': float(np.mean(precision_scores)),
+                'std_precision': float(np.std(precision_scores)),
+                'mean_recall': float(np.mean(recall_scores)),
+                'std_recall': float(np.std(recall_scores)),
+                'mean_f1': float(np.mean(f1_scores)),
+                'std_f1': float(np.std(f1_scores)),
+                'mean_balanced_accuracy': float(np.mean(balanced_accuracy_scores)),
+                'std_balanced_accuracy': float(np.std(balanced_accuracy_scores)),
+                'pearson_r2_scores': pearson_r2_scores,
+                'pearson_p_values': pearson_p_values,
+                'mean_pearson_r2': float(np.mean(pearson_r2_scores)),
+                'std_pearson_r2': float(np.std(pearson_r2_scores)),
+                'mean_pearson_p': float(np.mean(pearson_p_values)),
+                'std_pearson_p': float(np.std(pearson_p_values)),
+                'fold_best_params': fold_best_params,
+                'fold_label_distributions': fold_label_distributions,
+                'search_space': search_space,
+            }
+
         (
             outer_scores,
             pearson_corr_scores,
@@ -1306,6 +1738,7 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             search_space=search_space,
             val_size=0.1,
             best_params_list=best_params_list,
+            cfg=cfg,
         )
         return {
             'r2_scores': outer_scores,
@@ -1377,6 +1810,58 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
             'fold_best_params': fold_best_params,
             'search_space': search_space,
         }
+    elif model_name == "tabpfn" and model_type == "binary_classification":
+        (
+            outer_scores,
+            accuracy_scores,
+            precision_scores,
+            recall_scores,
+            f1_scores,
+            balanced_accuracy_scores,
+            pearson_r2_scores,
+            pearson_p_values,
+            fold_best_params,
+            fold_label_distributions,
+        ) = nested_cv_tabpfn_binary(
+            X,
+            y,
+            outer_cv=outer_cv,
+            inner_cv=inner_cv,
+            n_trials=n_trials,
+            search_space=search_space,
+            best_params_list=best_params_list,
+            cfg=cfg,
+        )
+        return {
+            'r2_scores': outer_scores,
+            'mean_r2': float(np.mean(outer_scores)),
+            'std_r2': float(np.std(outer_scores)),
+            'accuracy_scores': accuracy_scores,
+            'precision_scores': precision_scores,
+            'recall_scores': recall_scores,
+            'f1_scores': f1_scores,
+            'balanced_accuracy_scores': balanced_accuracy_scores,
+            'mean_accuracy': float(np.mean(accuracy_scores)),
+            'std_accuracy': float(np.std(accuracy_scores)),
+            'mean_precision': float(np.mean(precision_scores)),
+            'std_precision': float(np.std(precision_scores)),
+            'mean_recall': float(np.mean(recall_scores)),
+            'std_recall': float(np.std(recall_scores)),
+            'mean_f1': float(np.mean(f1_scores)),
+            'std_f1': float(np.std(f1_scores)),
+            'mean_balanced_accuracy': float(np.mean(balanced_accuracy_scores)),
+            'std_balanced_accuracy': float(np.std(balanced_accuracy_scores)),
+            'pearson_r2_scores': pearson_r2_scores,
+            'pearson_p_values': pearson_p_values,
+            'mean_pearson_r2': float(np.mean(pearson_r2_scores)),
+            'std_pearson_r2': float(np.std(pearson_r2_scores)),
+            'mean_pearson_p': float(np.mean(pearson_p_values)),
+            'std_pearson_p': float(np.std(pearson_p_values)),
+            'fold_best_params': fold_best_params,
+            'fold_label_distributions': fold_label_distributions,
+            'search_space': search_space,
+        }
+
     elif model_name in ["linear_regression", "tabpfn"]:
         r2_scores, pearson_r2_scores, pearson_p_values, spearman_rank_scores, spearman_p_values = normal_cv_linear_regression(
             X,
@@ -1406,6 +1891,282 @@ def search_hyperparams(model_name, X, y, n_trials=100, outer_cv=5, inner_cv=3, s
         }
     else:
         raise ValueError(f"Hyperparameter search not implemented for model: {model_name}")
+
+
+def nested_cv_binary_classifier_models(X, y, model_name='logistic_regression', outer_cv=5, inner_cv=3, n_trials=50, search_space=None, best_params_list=None, cfg=None, val_size=0.1):
+    """Perform nested cross-validation for binary classifiers."""
+    import copy
+    from sklearn.metrics import (
+        accuracy_score,
+        balanced_accuracy_score,
+        f1_score,
+        precision_score,
+        recall_score,
+    )
+
+    X_arr = np.asarray(X, dtype=np.float32)
+    y_arr = np.asarray(y, dtype=np.float32).ravel()
+
+    def make_model_cfg(params: dict | None = None) -> dict:
+        trial_cfg = copy.deepcopy(cfg) if cfg is not None else {"model": {}}
+        trial_cfg.setdefault("model", {})
+        trial_cfg["model"]["name"] = model_name
+        trial_cfg["model"]["type"] = "binary_classification"
+        if params:
+            trial_cfg["model"].update(params)
+        if model_name == "tabpfn":
+            trial_cfg["model"].setdefault("finetune", bool(trial_cfg["model"].get("finetune", False)))
+            trial_cfg["model"]["finetune"] = True if params is not None or trial_cfg["model"].get("finetune", False) else False
+        return trial_cfg
+
+    def score_predictions(y_true, preds):
+        y_true_bin = np.asarray(y_true).astype(int).ravel()
+        preds_arr = np.asarray(preds).ravel()
+        threshold = 0.5 if np.all((preds_arr >= 0.0) & (preds_arr <= 1.0)) else 0.0
+        y_pred_bin = (preds_arr >= threshold).astype(int)
+
+        if np.unique(y_true_bin).size > 1 and np.unique(preds_arr).size > 1:
+            pearson_r, pearson_p = pearsonr(y_true_bin, preds_arr)
+            if np.isnan(pearson_r):
+                pearson_r = 0.0
+                pearson_p = 1.0
+            pearson_r2 = float(pearson_r ** 2)
+        else:
+            pearson_r2 = 0.0
+            pearson_p = 1.0
+
+        return {
+            "threshold": threshold,
+            "accuracy": float(accuracy_score(y_true_bin, y_pred_bin)),
+            "precision": float(precision_score(y_true_bin, y_pred_bin, zero_division=0)),
+            "recall": float(recall_score(y_true_bin, y_pred_bin, zero_division=0)),
+            "f1": float(f1_score(y_true_bin, y_pred_bin, zero_division=0)),
+            "balanced_accuracy": float(balanced_accuracy_score(y_true_bin, y_pred_bin)),
+            "pearson_r2": pearson_r2,
+            "pearson_p": float(pearson_p),
+        }
+
+    def suggest_params(trial):
+        params = {}
+        if search_space is None:
+            if model_name == "tabpfn":
+                default_space = {
+                    "epochs": [20, 60],
+                    "learning_rate": [1e-6, 1e-4],
+                }
+            elif model_name == "xgboost":
+                default_space = {
+                    "n_estimators": [100, 1000],
+                    "max_depth": [3, 10],
+                    "learning_rate": [0.01, 0.3],
+                    "subsample": [0.6, 1.0],
+                    "colsample_bytree": [0.6, 1.0],
+                    "reg_alpha": [0.0, 1.0],
+                    "reg_lambda": [0.0, 5.0],
+                    "min_child_weight": [1, 10],
+                    "gamma": [0.0, 1.0],
+                }
+            elif model_name == "elastic_logistic_regression":
+                default_space = {
+                    "C": [1e-4, 100.0],
+                    "l1_ratio": [0.0, 1.0],
+                    "class_weight": [None, "balanced"],
+                }
+            else:
+                default_space = {
+                    "C": [1e-4, 100.0],
+                    "class_weight": [None, "balanced"],
+                }
+        else:
+            default_space = search_space
+
+        for param_name, bounds in default_space.items():
+            if isinstance(bounds, list) and len(bounds) == 2:
+                low, high = bounds
+                if param_name in {"epochs", "max_iter", "n_estimators", "max_depth"}:
+                    params[param_name] = int(trial.suggest_int(param_name, int(low), int(high)))
+                else:
+                    log = param_name in {"learning_rate", "C"}
+                    params[param_name] = float(trial.suggest_float(param_name, float(low), float(high), log=log))
+            elif isinstance(bounds, list):
+                params[param_name] = trial.suggest_categorical(param_name, bounds)
+            else:
+                params[param_name] = bounds
+
+        return params
+
+    outer_kfold = KFold(n_splits=outer_cv, shuffle=True, random_state=42)
+    f1_scores = []
+    accuracy_scores = []
+    precision_scores = []
+    recall_scores = []
+    balanced_accuracy_scores = []
+    pearson_r2_scores = []
+    pearson_p_values = []
+    fold_best_params = []
+    fold_label_distributions = []
+
+    def label_distribution(values):
+        values_arr = np.asarray(values).ravel().astype(int)
+        counts = np.bincount(values_arr, minlength=2)
+        total = int(counts.sum())
+        return {
+            "counts": {"negative": int(counts[0]), "positive": int(counts[1])},
+            "fractions": {
+                "negative": float(counts[0] / total) if total else 0.0,
+                "positive": float(counts[1] / total) if total else 0.0,
+            },
+            "total": total,
+        }
+
+    if best_params_list is not None:
+        print(f"Using pre-loaded best parameters ({len(best_params_list)} folds), skipping HPO")
+
+        for fold, (train_idx, test_idx) in enumerate(outer_kfold.split(X_arr)):
+            print(f"--- Evaluating Outer Fold {fold + 1}/{outer_cv} ---")
+            X_train_outer, X_test_outer = X_arr[train_idx], X_arr[test_idx]
+            y_train_outer, y_test_outer = y_arr[train_idx], y_arr[test_idx]
+
+            X_train_final, X_val_final, y_train_final, y_val_final = train_test_split(
+                X_train_outer,
+                y_train_outer,
+                test_size=val_size,
+                random_state=42,
+            )
+
+            best_params = best_params_list[fold]
+            print(f"  Using params: {best_params}")
+
+            final_cfg = make_model_cfg(best_params)
+            model = build_model(final_cfg)
+            model.fit(X_train_outer, y_train_outer)
+            final_preds = model.predict(X_test_outer)
+
+            metrics = score_predictions(y_test_outer, final_preds)
+            fold_label_distributions.append({
+                "fold": fold + 1,
+                "train": label_distribution(y_train_outer),
+                "test": label_distribution(y_test_outer),
+            })
+            f1_scores.append(metrics["f1"])
+            accuracy_scores.append(metrics["accuracy"])
+            precision_scores.append(metrics["precision"])
+            recall_scores.append(metrics["recall"])
+            balanced_accuracy_scores.append(metrics["balanced_accuracy"])
+            pearson_r2_scores.append(metrics["pearson_r2"])
+            pearson_p_values.append(metrics["pearson_p"])
+            fold_best_params.append(best_params)
+
+            print(f"  Fold {fold + 1} Accuracy: {metrics['accuracy']:.4f}")
+            print(f"  Fold {fold + 1} Precision: {metrics['precision']:.4f}")
+            print(f"  Fold {fold + 1} Recall: {metrics['recall']:.4f}")
+            print(f"  Fold {fold + 1} F1 Score: {metrics['f1']:.4f}")
+            print(f"  Fold {fold + 1} Balanced Accuracy: {metrics['balanced_accuracy']:.4f}")
+            print(f"  Fold {fold + 1} Pearson r²: {metrics['pearson_r2']:.4f}")
+
+        return (
+            f1_scores,
+            accuracy_scores,
+            precision_scores,
+            recall_scores,
+            balanced_accuracy_scores,
+            pearson_r2_scores,
+            pearson_p_values,
+            fold_best_params,
+            fold_label_distributions,
+        )
+
+    for fold, (train_idx, test_idx) in enumerate(outer_kfold.split(X_arr)):
+        print(f"--- Starting Outer Fold {fold + 1}/{outer_cv} ---")
+        X_train_outer, X_test_outer = X_arr[train_idx], X_arr[test_idx]
+        y_train_outer, y_test_outer = y_arr[train_idx], y_arr[test_idx]
+
+        def objective(trial):
+            trial_params = suggest_params(trial)
+            print(f"    Trial {trial.number + 1}/{n_trials} params: {trial_params}")
+            inner_scores = []
+            inner_kfold = KFold(n_splits=inner_cv, shuffle=True, random_state=42)
+            for inner_fold, (inner_train_idx, inner_val_idx) in enumerate(inner_kfold.split(X_train_outer)):
+                X_train_inner = X_train_outer[inner_train_idx]
+                y_train_inner = y_train_outer[inner_train_idx]
+                X_val_inner = X_train_outer[inner_val_idx]
+                y_val_inner = y_train_outer[inner_val_idx]
+
+                inner_cfg = make_model_cfg(trial_params)
+                model = build_model(inner_cfg)
+                model.fit(X_train_inner, y_train_inner)
+                preds = model.predict(X_val_inner)
+                metrics = score_predictions(y_val_inner, preds)
+                inner_scores.append(metrics["f1"])
+                print(f"        Inner fold {inner_fold + 1} F1: {metrics['f1']:.4f}")
+
+            mean_inner_score = float(np.mean(inner_scores))
+            print(f"    Trial {trial.number + 1} mean inner F1: {mean_inner_score:.4f}")
+            return mean_inner_score
+
+        sampler = TPESampler(seed=42 + fold)
+        study = optuna.create_study(direction='maximize', sampler=sampler)
+        study.optimize(objective, n_trials=n_trials)
+
+        best_params = dict(study.best_params)
+        if model_name == "tabpfn":
+            best_params["finetune"] = True
+        fold_best_params.append(best_params)
+        print(f"  Completed inner optimization for fold {fold + 1}, best inner F1: {study.best_value:.4f}")
+
+        X_train_final, X_val_final, y_train_final, y_val_final = train_test_split(
+            X_train_outer,
+            y_train_outer,
+            test_size=0.1,
+            random_state=42,
+        )
+
+        final_cfg = make_model_cfg(best_params)
+        model = build_model(final_cfg)
+        model.fit(X_train_outer, y_train_outer)
+        final_preds = model.predict(X_test_outer)
+
+        metrics = score_predictions(y_test_outer, final_preds)
+        fold_label_distributions.append({
+            "fold": fold + 1,
+            "train": label_distribution(y_train_outer),
+            "test": label_distribution(y_test_outer),
+        })
+        f1_scores.append(metrics["f1"])
+        accuracy_scores.append(metrics["accuracy"])
+        precision_scores.append(metrics["precision"])
+        recall_scores.append(metrics["recall"])
+        balanced_accuracy_scores.append(metrics["balanced_accuracy"])
+        pearson_r2_scores.append(metrics["pearson_r2"])
+        pearson_p_values.append(metrics["pearson_p"])
+
+        print(f"Outer Fold {fold + 1} Accuracy: {metrics['accuracy']:.4f}")
+        print(f"Outer Fold {fold + 1} Precision: {metrics['precision']:.4f}")
+        print(f"Outer Fold {fold + 1} Recall: {metrics['recall']:.4f}")
+        print(f"Outer Fold {fold + 1} F1 Score: {metrics['f1']:.4f}")
+        print(f"Outer Fold {fold + 1} Balanced Accuracy: {metrics['balanced_accuracy']:.4f}")
+        print(f"Outer Fold {fold + 1} Pearson r²: {metrics['pearson_r2']:.4f}")
+        print(f"Best Params for Fold {fold + 1}: {best_params}\n")
+
+    return (
+        f1_scores,
+        accuracy_scores,
+        precision_scores,
+        recall_scores,
+        balanced_accuracy_scores,
+        pearson_r2_scores,
+        pearson_p_values,
+        fold_best_params,
+        fold_label_distributions,
+    )
+
+
+def nested_cv_binary_logistic_regression(*args, **kwargs):
+    return nested_cv_binary_classifier_models(*args, **kwargs)
+
+
+def nested_cv_tabpfn_binary(*args, **kwargs):
+    return nested_cv_binary_classifier_models(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -1440,7 +2201,12 @@ def train_dnn(model_cfg, X_train, y_train, X_val, y_val, X_test, y_test, cfg=Non
     val_loader = DataLoader(GWASDataset(X_val, y_val), batch_size=batch_size, shuffle=True, drop_last=True)
     test_loader = DataLoader(GWASDataset(X_test, y_test), batch_size=batch_size, shuffle=False, drop_last=True)
 
-    criterion = nn.MSELoss()
+    if cfg["model"]["type"] == "regression":
+        criterion = nn.MSELoss()
+    elif cfg["model"]["type"] in ["classification", "binary_classification"]:
+        criterion = nn.BCEWithLogitsLoss()
+
+
     optimizer = optim.Adam(model.parameters(), lr=model_cfg["lr"])
 
     # learning rate scheduler
@@ -1530,55 +2296,123 @@ def train_dnn(model_cfg, X_train, y_train, X_val, y_val, X_test, y_test, cfg=Non
 def evaluate(y_test, preds, cfg):
     """Compute, print, and return evaluation metrics as a dict."""
     eval_cfg = cfg.get("evaluation", {})
-    metric_names = eval_cfg.get("metrics", ["r2", "mse"])
+    model_type = cfg.get("model", {}).get("type", "regression")
+    is_regression_task = model_type == "regression"
+    is_binary_task = cfg.get("model", {}).get("type") == "binary_classification"
+    default_metrics = ["accuracy", "precision", "recall", "f1"] if is_binary_task else ["r2", "mse", "pearson_r2"]
+    metric_names = eval_cfg.get("metrics", default_metrics)
+    binary_metric_names = {"accuracy", "precision", "recall", "f1", "balanced_accuracy"}
+    y_true_arr = np.asarray(y_test).ravel()
+    y_true_unique = set(np.unique(y_true_arr).tolist())
+    y_true_is_binary = y_true_unique.issubset({0, 1}) and len(y_true_unique) <= 2
+
     results = {}
 
     print("\n" + "=" * 44)
     print("             Evaluation Results")
     print("=" * 44)
 
-    if "r2" in metric_names:
-        results["r2"] = float(r2_score(y_test, preds))
-        print(f"  R² Score:    {results['r2']:.4f}")
-    if "pearson_r2" in metric_names:
-        results["pearson_r2"] = float(pearsonr(y_test, preds)[0])**2
-        print(f"  Pearson R²:  {results['pearson_r2']:.4f}")
-    if "mse" in metric_names:
-        results["mse"] = float(mean_squared_error(y_test, preds))
-        print(f"  MSE:         {results['mse']:.4f}")
-    if "stderr" in metric_names:
-        stderr = np.sqrt(mean_squared_error(y_test, preds) / len(y_test))
-        results["stderr"] = float(stderr)
-        print(f"  StdErr:      {results['stderr']:.4f}")
+    if is_regression_task:
+        print(f"  Regression metrics:")
+        if "r2" in metric_names:
+            results["r2"] = float(r2_score(y_test, preds))
+            print(f"  R² Score:    {results['r2']:.4f}")
+        if "mse" in metric_names:
+            results["mse"] = float(mean_squared_error(y_test, preds))
+            print(f"  MSE:         {results['mse']:.4f}")
+        if "stderr" in metric_names:
+            stderr = np.sqrt(mean_squared_error(y_test, preds) / len(y_test))
+            results["stderr"] = float(stderr)
+            print(f"  StdErr:      {results['stderr']:.4f}")
+        if "pearson_r2" in metric_names:
+            pearson_value, pearson_p_value = pearsonr(y_test, preds)
+            if np.isnan(pearson_value):
+                pearson_value = 0.0
+                pearson_p_value = 1.0
+            results["pearson_r2"] = float(pearson_value**2)
+            results["pearson_p_value"] = float(pearson_p_value)
+            print(f"  Pearson R²:  {results['pearson_r2']:.4f} with p-value {results['pearson_p_value']:.4e}")
 
-    print("=" * 44)
+    elif is_binary_task or y_true_is_binary:
+        binary_metrics_requested = any(metric in binary_metric_names for metric in metric_names)
+        if not binary_metrics_requested and "pearson_r2" not in metric_names:
+            print("  No binary metrics requested for this split.")
+            print("=" * 44)
+            return results
 
-    # Optional binary classification metrics
-    threshold = eval_cfg.get("binary_threshold")
-    if threshold is not None:
         from sklearn.metrics import (
-            accuracy_score, precision_score, recall_score,
-            f1_score, classification_report,
+            accuracy_score,
+            precision_score,
+            recall_score,
+            f1_score,
+            balanced_accuracy_score,
+            confusion_matrix,
+            classification_report,
         )
-        y_true_bin = (np.array(y_test) >= threshold).astype(int)
-        y_pred_bin = (np.array(preds) >= threshold).astype(int)
 
-        results["binary_threshold"] = threshold
-        results["accuracy"] = float(accuracy_score(y_true_bin, y_pred_bin))
-        results["precision"] = float(precision_score(y_true_bin, y_pred_bin, zero_division=0))
-        results["recall"] = float(recall_score(y_true_bin, y_pred_bin, zero_division=0))
-        results["f1"] = float(f1_score(y_true_bin, y_pred_bin, zero_division=0))
+        y_true_bin = y_true_arr.astype(int)
+        preds_arr = np.asarray(preds)
+
+        threshold = eval_cfg.get("binary_threshold")
+        if threshold is None:
+            if np.all((preds_arr >= 0.0) & (preds_arr <= 1.0)):
+                threshold = 0.5
+            else:
+                threshold = 0.0
+
+        y_pred_bin = (preds_arr >= threshold).astype(int)
+        results["binary_threshold"] = float(threshold)
+        results["predicted_positive_count"] = int(np.sum(y_pred_bin == 1))
+        results["predicted_negative_count"] = int(np.sum(y_pred_bin == 0))
+
+        tn, fp, fn, tp = confusion_matrix(y_true_bin, y_pred_bin, labels=[0, 1]).ravel()
+        results["tn"] = int(tn)
+        results["fp"] = int(fp)
+        results["fn"] = int(fn)
+        results["tp"] = int(tp)
+
+        if "pearson_r2" in metric_names:
+            pearson_value, pearson_p_value = 0.0, 1.0
+            if np.unique(y_true_bin).size > 1 and np.unique(preds_arr).size > 1:
+                pearson_value, pearson_p_value = pearsonr(y_true_bin, preds_arr)
+                if np.isnan(pearson_value):
+                    pearson_value = 0.0
+                    pearson_p_value = 1.0
+            results["pearson_r2"] = float(pearson_value**2)
+            results["pearson_p_value"] = float(pearson_p_value)
+            print(f"  Pearson R²:  {results['pearson_r2']:.4f} with p-value {results['pearson_p_value']:.4e}")
+
+        if "accuracy" in metric_names or is_binary_task:
+            results["accuracy"] = float(accuracy_score(y_true_bin, y_pred_bin))
+            print(f"  Accuracy:    {results['accuracy']:.4f}")
+        if "precision" in metric_names or is_binary_task:
+            results["precision"] = float(precision_score(y_true_bin, y_pred_bin, zero_division=0))
+            print(f"  Precision:   {results['precision']:.4f}")
+        if "recall" in metric_names or is_binary_task:
+            results["recall"] = float(recall_score(y_true_bin, y_pred_bin, zero_division=0))
+            print(f"  Recall:      {results['recall']:.4f}")
+        if "f1" in metric_names or is_binary_task:
+            results["f1"] = float(f1_score(y_true_bin, y_pred_bin, zero_division=0))
+            print(f"  F1 Score:    {results['f1']:.4f}")
+        if is_binary_task or "balanced_accuracy" in metric_names:
+            results["balanced_accuracy"] = float(balanced_accuracy_score(y_true_bin, y_pred_bin))
+            print(f"  Balanced Accuracy: {results['balanced_accuracy']:.4f}")
+
+        print(f"  Predicted positives: {results['predicted_positive_count']} / {len(y_pred_bin)}")
+        print(f"  Confusion matrix: TN={tn}, FP={fp}, FN={fn}, TP={tp}")
 
         print(f"\n  Binary classification (threshold = {threshold}):")
-        print(f"  Accuracy:    {results['accuracy']:.4f}")
-        print(f"  Precision:   {results['precision']:.4f}")
-        print(f"  Recall:      {results['recall']:.4f}")
-        print(f"  F1 Score:    {results['f1']:.4f}")
         print("\n" + classification_report(
-            y_true_bin, y_pred_bin,
-            target_names=[f"< {threshold}", f">= {threshold}"],
+            y_true_bin,
+            y_pred_bin,
+            labels=[0, 1],
+            target_names=["negative", "positive"],
             zero_division=0,
         ))
+    elif binary_metric_names and not y_true_is_binary:
+        print("  Skipping binary metrics because y_test is not binary for this split.")
+
+    print("=" * 44)
 
     return results
 
@@ -1776,6 +2610,11 @@ def main() -> None:
                 id_cols = [col for col in ["ID"] if col in df_pandas.columns]
                 X = df_pandas.drop(columns=[data_cfg["target"]] + id_cols)
                 y = df_pandas[data_cfg["target"]]
+                if cfg["model"]["type"] == "binary_classification":
+                    # convert z score to p value on the fly
+                    from scipy.stats import norm
+                    y = norm.sf(abs(y)) * 2  # two-tailed p-value
+                    y = (y <= cfg["model"]["p_value_binary"]).astype(int)  # binary labels: 1 if significant, 0 otherwise
                 hpo_results = search_hyperparams(
                     cfg["model"]["name"],
                     X,
@@ -1790,8 +2629,17 @@ def main() -> None:
                 output["hpo"] = hpo_results
 
             if cfg["experiment"].get("run", True):
+                
                 if save_splits:
-                    prepare_data_splits(df, test_size, illness, nsplits=n_splits, save=True)
+                    prepare_data_splits(
+                        df,
+                        test_size,
+                        illness,
+                        nsplits=n_splits,
+                        save=True,
+                        binary=cfg["model"]["type"] == "binary_classification",
+                        p_value_binary=cfg["model"]["p_value_binary"],
+                    )
 
                 # Build model
                 model = build_model(cfg)
@@ -1821,6 +2669,24 @@ def main() -> None:
                         preds = train_sklearn(model, X_train, y_train, X_test, y_test, cfg)
 
                     split_metrics = evaluate(y_test, preds, cfg)
+                    if cfg["model"]["type"] == "binary_classification":
+                        y_train_arr = np.asarray(y_train).ravel().astype(int)
+                        y_val_arr = np.asarray(y_val).ravel().astype(int)
+                        y_test_arr = np.asarray(y_test).ravel().astype(int)
+                        split_metrics["label_distribution"] = {
+                            "train": {
+                                "negative": int(np.sum(y_train_arr == 0)),
+                                "positive": int(np.sum(y_train_arr == 1)),
+                            },
+                            "validation": {
+                                "negative": int(np.sum(y_val_arr == 0)),
+                                "positive": int(np.sum(y_val_arr == 1)),
+                            },
+                            "test": {
+                                "negative": int(np.sum(y_test_arr == 0)),
+                                "positive": int(np.sum(y_test_arr == 1)),
+                            },
+                        }
                     split_metrics["seed"] = seed
                     seed_results.append(split_metrics)
                     all_preds.append(preds)

@@ -313,7 +313,7 @@ def load_illness_data(illness, in_notebook=True, polars=False, distribution="low
 
     return df_illness
 
-def prepare_data_splits(df, testsize, illness, nsplits, save=True):
+def prepare_data_splits(df, testsize, illness, nsplits, save=True, binary=False, p_value_binary=0.05):
     """
     Input: DataFrame, target column name, test size, illness name, number of splits, whether to save splits
     Output: Saves train/test splits as .pt files in data/splits/{illness}_{nsplits}/seed_{seed}/
@@ -322,7 +322,7 @@ def prepare_data_splits(df, testsize, illness, nsplits, save=True):
     target = f"Z"
     
     for seed in seeds:
-        X_train, y_train, X_test, y_test = preprocess(df, target, testsize, seed)
+        X_train, y_train, X_test, y_test = preprocess(df, target, testsize, seed, binary, p_value_binary)
         output_dir = Path(f"./data/splits/{illness}_{nsplits}/seed_{seed}").expanduser().resolve()
         if seed == 42:
             print(f"saved splits for seed {seed} at {output_dir}")
