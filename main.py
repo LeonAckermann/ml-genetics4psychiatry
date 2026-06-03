@@ -250,6 +250,7 @@ def main() -> None:
                 polars=data_cfg.get("polars", False),
                 chunk_size=data_cfg.get("chunk_size", 100000),
                 total_chunks=data_cfg.get("total_chunks", None),
+                sample_p=data_cfg.get("sample_p", False),
             )
             output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
         else:

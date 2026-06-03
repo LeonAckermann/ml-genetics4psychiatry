@@ -246,14 +246,17 @@ def preprocess(df, target, testsize, seed=42, binary=False, p_value_binary=0.05)
     X_test = scaler.transform(X_test)
     return X_train, y_train, X_test, y_test
 
-def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None):
+def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False):
 
     if data_path is None:
         data_path = "./data"
     else:
         data_path = "../../data"
 
-    data_path = Path(f"{data_path}/pipeline/final/aligned_clumped_{illness}.txt").expanduser().resolve()
+    if sample_p:
+        data_path = Path(f"{data_path}/pipeline/final_p/aligned_clumped_{illness}.txt").expanduser().resolve()
+    else:
+        data_path = Path(f"{data_path}/pipeline/final/aligned_clumped_{illness}.txt").expanduser().resolve()
     if polars:
         df = load_txt_polars(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
     else:
@@ -320,7 +323,10 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
         df = significant.copy()
         df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
         # save as txt file
-        output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
+        if sample_p:
+            output_path = Path(f"data/sampled_p/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
+        else:
+            output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
         # make sure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output_path, sep="\t", index=False)
