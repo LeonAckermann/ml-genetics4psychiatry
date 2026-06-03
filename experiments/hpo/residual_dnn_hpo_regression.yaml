@@ -13,8 +13,8 @@ sampling:
 
 # Data settings
 data:
-  illness: ["SCZ"]
-  p_clump: [0.0001]
+  illness: ["SCZ", "ADHD", "BIP", "OCD", "MDD", "AZ"]
+  p_clump: [0.0001, 0.001, 0.01]
   distribution: ["low"]
   target: Z
   test_size: 0.2
@@ -22,7 +22,7 @@ data:
   save_splits: true
   polars: true
   chunk_size: 10000
-  row_ratio: [0.1]
+  row_ratio: [1]
   col_ratio: [1]
   top_rows: true
   top_cols: true
@@ -34,14 +34,14 @@ experiment:
 # Model settings
 model:
   name: residual_dnn
-  type: "binary_classification"
-  p_value_binary: 0.00001
+  type: ["regression"]
+  p_value_binary: 0.0001
 
 # Skip HPO and load best params from best_params folder
 # Hyperparameter optimization settings
 hpo:
   run: true
-  n_trials: 2
+  n_trials: 20
   outer_cv: 5
   inner_cv: 5
   search_space:
@@ -58,5 +58,5 @@ load_best_params: false
 
 # Evaluation settings
 evaluation:
-  metrics: [accuracy, precision, recall, f1]
+  metrics: [r2, mse, pearson_r2]
   binary_threshold: null

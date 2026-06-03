@@ -1,0 +1,211 @@
+{
+  "hpo": {
+    "r2_scores": [
+      0.07109564542770386,
+      -0.03484070301055908,
+      0.12682950496673584,
+      0.06396979093551636,
+      -0.2764178514480591
+    ],
+    "mean_r2": -0.009872722625732421,
+    "std_r2": 0.14308444933425207,
+    "pearson_corr_scores": [
+      0.26904529333114624,
+      0.243576779961586,
+      0.37315845489501953,
+      0.3245897889137268,
+      0.2476188838481903
+    ],
+    "pearson_r2_scores": [
+      0.07238537073135376,
+      0.059329647570848465,
+      0.13924723863601685,
+      0.1053585335612297,
+      0.06131511181592941
+    ],
+    "pearson_p_values": [
+      7.084577902105593e-08,
+      1.1993099633400561e-06,
+      2.89297089701903e-14,
+      5.705057606886221e-11,
+      7.855870762796258e-07
+    ],
+    "mean_pearson_corr": 0.291597843170166,
+    "std_pearson_corr": 0.049978774040937424,
+    "mean_pearson_r2": 0.08752717822790146,
+    "std_pearson_r2": 0.030673667788505554,
+    "mean_pearson_p": 4.111599878342531e-07,
+    "std_pearson_p": 4.930006411996146e-07,
+    "spearman_corr_scores": [
+      0.2021845093028941,
+      0.21041563667519944,
+      0.282145760293396,
+      0.23193114286751798,
+      0.21330896655699005
+    ],
+    "spearman_rank_scores": [
+      0.04087857580205208,
+      0.044274740157429535,
+      0.07960623005153847,
+      0.053792055031833035,
+      0.0455007152136111
+    ],
+    "spearman_p_values": [
+      5.908773715927222e-05,
+      2.9382023255898967e-05,
+      1.5585140915261794e-08,
+      3.8955548323777785e-06,
+      2.265203139890973e-05
+    ],
+    "mean_spearman_corr": 0.22799720313919952,
+    "std_spearman_corr": 0.028770446850812634,
+    "mean_spearman_rank": 0.052810463251292836,
+    "std_spearman_rank": 0.0140544481503019,
+    "mean_spearman_p": 2.300658635747479e-05,
+    "std_spearman_p": 2.1149179704847052e-05,
+    "fold_best_params": [
+      {
+        "alpha": 3076.225299462512
+      },
+      {
+        "alpha": 262.3101875702384
+      },
+      {
+        "alpha": 3862.464292414933
+      },
+      {
+        "alpha": 364.05393122922607
+      },
+      {
+        "alpha": 29.310854701840327
+      }
+    ],
+    "search_space": {
+      "hidden_dim": [
+        32,
+        128
+      ],
+      "n_layers": [
+        1,
+        8
+      ],
+      "dropout": [
+        0.1,
+        0.8
+      ],
+      "learning_rate": [
+        "1e-6",
+        "1e-2"
+      ],
+      "weight_decay": [
+        0.0,
+        0.0001
+      ],
+      "batch_size": [
+        16,
+        64
+      ],
+      "epochs": [
+        20,
+        60
+      ],
+      "patience": [
+        5,
+        20
+      ]
+    }
+  },
+  "experiment": "ridge_regression_SCZ_p0.0001_low_1_1",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        1
+      ],
+      "col_ratio": [
+        1
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.0001
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "ridge_regression"
+    },
+    "hpo": {
+      "run": true,
+      "n_trials": 30,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "hidden_dim": [
+          32,
+          128
+        ],
+        "n_layers": [
+          1,
+          8
+        ],
+        "dropout": [
+          0.1,
+          0.8
+        ],
+        "learning_rate": [
+          "1e-6",
+          "1e-2"
+        ],
+        "weight_decay": [
+          0.0,
+          0.0001
+        ],
+        "batch_size": [
+          16,
+          64
+        ],
+        "epochs": [
+          20,
+          60
+        ],
+        "patience": [
+          5,
+          20
+        ]
+      }
+    },
+    "load_best_params": true,
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260518_000401"
+}

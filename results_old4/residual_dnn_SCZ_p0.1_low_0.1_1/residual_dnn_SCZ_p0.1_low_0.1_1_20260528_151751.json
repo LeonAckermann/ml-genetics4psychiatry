@@ -1,0 +1,160 @@
+{
+  "experiment": "residual_dnn_SCZ_p0.1_low_0.1_1",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.1
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 5,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        0.1
+      ],
+      "col_ratio": [
+        1
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.0001
+    },
+    "experiment": {
+      "run": true
+    },
+    "model": {
+      "name": "residual_dnn",
+      "hidden_dims": [
+        128,
+        128,
+        64,
+        64,
+        32,
+        32
+      ],
+      "output_dim": 1,
+      "dropout": 0.4,
+      "learning_rate": 5e-05,
+      "epochs": 50,
+      "batch_size": 32,
+      "patience": 20,
+      "type": "regression",
+      "p_value_binary": 1e-05
+    },
+    "hpo": {
+      "run": false,
+      "n_trials": 30,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "hidden_dim": [
+          32,
+          128
+        ],
+        "n_layers": [
+          1,
+          8
+        ],
+        "dropout": [
+          0.1,
+          0.8
+        ],
+        "learning_rate": [
+          "1e-6",
+          "1e-2"
+        ],
+        "weight_decay": [
+          0.0,
+          0.0001
+        ],
+        "batch_size": [
+          16,
+          64
+        ],
+        "epochs": [
+          20,
+          60
+        ],
+        "patience": [
+          5,
+          20
+        ]
+      }
+    },
+    "load_best_params": false,
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse",
+        "pearson_r2",
+        "accuracy",
+        "precision",
+        "recall",
+        "f1"
+      ],
+      "binary_threshold": null
+    },
+    "seed": 46
+  },
+  "timestamp": "20260528_151751",
+  "per_seed": [
+    {
+      "r2": -0.06618001079575953,
+      "pearson_r2": 0.024750647529253374,
+      "pearson_p_value": 5.887639119981199e-09,
+      "mse": 7.70973386601231,
+      "seed": 42
+    },
+    {
+      "r2": -0.04362827841022465,
+      "pearson_r2": 0.04330895017464453,
+      "pearson_p_value": 1.0302475160578988e-14,
+      "mse": 7.480216191598265,
+      "seed": 43
+    },
+    {
+      "r2": -0.05958561039159904,
+      "pearson_r2": 0.04268249882459511,
+      "pearson_p_value": 1.6150394381006875e-14,
+      "mse": 7.362393663441003,
+      "seed": 44
+    },
+    {
+      "r2": -0.03078635466062818,
+      "pearson_r2": 0.04354374080944549,
+      "pearson_p_value": 8.704517729333981e-15,
+      "mse": 7.528318010300629,
+      "seed": 45
+    },
+    {
+      "r2": -0.1357597375867754,
+      "pearson_r2": 0.008874724946923023,
+      "pearson_p_value": 0.0005185536318568692,
+      "mse": 7.5846071508648905,
+      "seed": 46
+    }
+  ],
+  "aggregated": {
+    "r2": -0.06585708034711768,
+    "pearson_r2": 0.03148262524402388,
+    "pearson_p_value": 5.286924822792356e-49,
+    "mse": 7.533053776443421
+  }
+}

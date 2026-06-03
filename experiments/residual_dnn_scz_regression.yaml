@@ -66,5 +66,5 @@ load_best_params: false
 
 # Evaluation settings
 evaluation:
-  metrics: [r2, mse, accuracy, precision, recall, f1]
+  metrics: [r2, mse, pearson_r2]
   binary_threshold: null

@@ -1,0 +1,258 @@
+{
+  "experiment": "linear_regression_SCZ_p0.0001_low_0.2_1_regression",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        0.2
+      ],
+      "col_ratio": [
+        1
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.05
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "linear_regression",
+      "type": "regression",
+      "p_value_binary": 1e-05
+    },
+    "hpo": {
+      "run": true,
+      "outer_cv": 5
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse",
+        "pearson_r2"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260529_133224",
+  "hpo": {
+    "fold_metrics": [
+      {
+        "r2": 0.18224901180472308,
+        "pearson_r": 0.5255171596386572,
+        "pearson_r2": 0.2761682850746819,
+        "pearson_p": 7.801693595462448e-07,
+        "spearman_rho": 0.4322639385930525,
+        "spearman_rho2": 0.18685211260797827,
+        "spearman_p": 7.748384204159374e-05
+      },
+      {
+        "r2": 0.2861228587651894,
+        "pearson_r": 0.612430828149165,
+        "pearson_r2": 0.3750715192674721,
+        "pearson_p": 2.545430120831147e-09,
+        "spearman_rho": 0.5846179137318377,
+        "spearman_rho2": 0.3417781050561664,
+        "spearman_p": 1.9108913660708762e-08
+      },
+      {
+        "r2": -0.37751347462786744,
+        "pearson_r": 0.26530500891012343,
+        "pearson_r2": 0.07038674775280067,
+        "pearson_p": 0.018899034631613902,
+        "spearman_rho": 0.22763312636730357,
+        "spearman_rho2": 0.051816840219752795,
+        "spearman_p": 0.045033647767429255
+      },
+      {
+        "r2": 0.06744884797424389,
+        "pearson_r": 0.4971145850684805,
+        "pearson_r2": 0.24712291068780753,
+        "pearson_p": 4.245017544862644e-06,
+        "spearman_rho": 0.45480834954519156,
+        "spearman_rho2": 0.20685063481602114,
+        "spearman_p": 3.24687683071847e-05
+      },
+      {
+        "r2": -0.05863668021759727,
+        "pearson_r": 0.4087271134201891,
+        "pearson_r2": 0.1670578532448001,
+        "pearson_p": 0.00022383226515974812,
+        "spearman_rho": 0.25306438998647146,
+        "spearman_rho2": 0.06404158547922492,
+        "spearman_p": 0.026378760712657347
+      }
+    ],
+    "fold_best_params": [
+      {},
+      {},
+      {},
+      {},
+      {}
+    ],
+    "fold_label_distributions": [
+      {
+        "fold": 1,
+        "train": {
+          "counts": {
+            "negative": 138,
+            "positive": 172
+          },
+          "fractions": {
+            "negative": 0.44516129032258067,
+            "positive": 0.5548387096774193
+          },
+          "total": 310
+        },
+        "test": {
+          "counts": {
+            "negative": 38,
+            "positive": 40
+          },
+          "fractions": {
+            "negative": 0.48717948717948717,
+            "positive": 0.5128205128205128
+          },
+          "total": 78
+        }
+      },
+      {
+        "fold": 2,
+        "train": {
+          "counts": {
+            "negative": 136,
+            "positive": 174
+          },
+          "fractions": {
+            "negative": 0.43870967741935485,
+            "positive": 0.5612903225806452
+          },
+          "total": 310
+        },
+        "test": {
+          "counts": {
+            "negative": 40,
+            "positive": 38
+          },
+          "fractions": {
+            "negative": 0.5128205128205128,
+            "positive": 0.48717948717948717
+          },
+          "total": 78
+        }
+      },
+      {
+        "fold": 3,
+        "train": {
+          "counts": {
+            "negative": 136,
+            "positive": 174
+          },
+          "fractions": {
+            "negative": 0.43870967741935485,
+            "positive": 0.5612903225806452
+          },
+          "total": 310
+        },
+        "test": {
+          "counts": {
+            "negative": 40,
+            "positive": 38
+          },
+          "fractions": {
+            "negative": 0.5128205128205128,
+            "positive": 0.48717948717948717
+          },
+          "total": 78
+        }
+      },
+      {
+        "fold": 4,
+        "train": {
+          "counts": {
+            "negative": 144,
+            "positive": 167
+          },
+          "fractions": {
+            "negative": 0.4630225080385852,
+            "positive": 0.5369774919614148
+          },
+          "total": 311
+        },
+        "test": {
+          "counts": {
+            "negative": 32,
+            "positive": 45
+          },
+          "fractions": {
+            "negative": 0.4155844155844156,
+            "positive": 0.5844155844155844
+          },
+          "total": 77
+        }
+      },
+      {
+        "fold": 5,
+        "train": {
+          "counts": {
+            "negative": 150,
+            "positive": 161
+          },
+          "fractions": {
+            "negative": 0.48231511254019294,
+            "positive": 0.5176848874598071
+          },
+          "total": 311
+        },
+        "test": {
+          "counts": {
+            "negative": 26,
+            "positive": 51
+          },
+          "fractions": {
+            "negative": 0.33766233766233766,
+            "positive": 0.6623376623376623
+          },
+          "total": 77
+        }
+      }
+    ],
+    "mean_r2": 0.01993411273973833,
+    "std_r2": 0.22960756923227008,
+    "mean_pearson_r": 0.4618189390373231,
+    "std_pearson_r": 0.11783348739621419,
+    "mean_pearson_r2": 0.22716146320551248,
+    "std_pearson_r2": 0.10282827237209148,
+    "mean_pearson_p": 0.0038255789258216356,
+    "std_pearson_p": 0.007537219101635028,
+    "mean_spearman_rho": 0.39047754364477133,
+    "std_spearman_rho": 0.13339843906498453,
+    "mean_spearman_rho2": 0.1702678556358287,
+    "std_spearman_rho2": 0.10615438426421651,
+    "mean_spearman_p": 0.014304476039869807,
+    "std_spearman_p": 0.018443347483944078
+  }
+}

@@ -6,12 +6,12 @@ plink2:
   prepare: false
 
 sampling:
-  run: false
+  run: true
 
 # Data settings
 data:
-  illness: ["SCZ", "ADHD", "MDD", "AZ", "BIP", "OCD"]
-  p_clump: [0.0001, 0.001, 0.01, 0.1]
+  illness: ["SCZ"]
+  p_clump: [0.00000001]
   distribution: ["low"]
   target: Z
   test_size: 0.2
@@ -19,22 +19,27 @@ data:
   save_splits: true
   polars: true
   chunk_size: 10000
+  row_ratio: [1.0]
+  col_ratio: [1.0]
+  top_rows: true
+  top_cols: true
+  sampling: true
+  mri_p_value: 0.05
 
 experiment:
   run: false
 
 # Model settings
 model:
-  name: lasso_regression    # Options: linear_regression, dnn, baseline
+  name: linear_regression    # Options: linear_regression, dnn, baseline
+  type: ["regression"]  # Options: regression, binary_classification
+  p_value_binary: 0.00001
 # Hyperparameter optimization settings
 hpo:
   run: true
-  n_trials: 10
   outer_cv: 5
-  inner_cv: 5
-  search_space:
-    alpha: [0.00001, 10000]
+
 # Evaluation settings
 evaluation:
-  metrics: [r2, mse]
+  metrics: [r2, mse, pearson_r2]
   binary_threshold: null

@@ -1,0 +1,341 @@
+{
+  "experiment": "residual_dnn_SCZ_p0.0001_low_0.1_1_regression",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        0.1
+      ],
+      "col_ratio": [
+        1
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.0001
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "residual_dnn",
+      "type": "regression",
+      "p_value_binary": 1e-05
+    },
+    "hpo": {
+      "run": true,
+      "n_trials": 2,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "hidden_dim": [
+          32,
+          128
+        ],
+        "n_layers": [
+          1,
+          8
+        ],
+        "dropout": [
+          0.1,
+          0.8
+        ],
+        "learning_rate": [
+          "1e-6",
+          "1e-2"
+        ],
+        "weight_decay": [
+          0.0,
+          0.0001
+        ],
+        "batch_size": [
+          16,
+          64
+        ],
+        "epochs": [
+          20,
+          60
+        ],
+        "patience": [
+          5,
+          20
+        ]
+      }
+    },
+    "load_best_params": false,
+    "evaluation": {
+      "metrics": [
+        "accuracy",
+        "precision",
+        "recall",
+        "f1"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260529_132657",
+  "hpo": {
+    "fold_metrics": [
+      {
+        "r2": -0.008409879833482403,
+        "pearson_r": 0.2672934128106714,
+        "pearson_r2": 0.07144576853197601,
+        "pearson_p": 0.09996513805558464,
+        "spearman_rho": 0.25485829959514167,
+        "spearman_rho2": 0.06495275287252698,
+        "spearman_p": 0.11739820581867504
+      },
+      {
+        "r2": 0.22521762095978293,
+        "pearson_r": 0.4858921952208874,
+        "pearson_r2": 0.23609122537657296,
+        "pearson_p": 0.0017134877334107302,
+        "spearman_rho": 0.3404858299595142,
+        "spearman_rho2": 0.11593060040321922,
+        "spearman_p": 0.033923140479336054
+      },
+      {
+        "r2": -0.0012471550545936072,
+        "pearson_r": 0.03611251123683919,
+        "pearson_r2": 0.0013041134678308365,
+        "pearson_p": 0.8272295422133119,
+        "spearman_rho": -0.04534412955465587,
+        "spearman_rho2": 0.0020560900850694155,
+        "spearman_p": 0.7840064307071161
+      },
+      {
+        "r2": 0.09262277862062018,
+        "pearson_r": 0.45030999975426406,
+        "pearson_r2": 0.20277909587868528,
+        "pearson_p": 0.004020197008249724,
+        "spearman_rho": 0.3732793522267207,
+        "spearman_rho2": 0.1393374747988002,
+        "spearman_p": 0.0192531093756379
+      },
+      {
+        "r2": 0.14254952578682223,
+        "pearson_r": 0.38796697157273474,
+        "pearson_r2": 0.15051837103131918,
+        "pearson_p": 0.01609230311221361,
+        "spearman_rho": 0.1331655542181858,
+        "spearman_rho2": 0.01773306483023658,
+        "spearman_p": 0.42543657496787246
+      }
+    ],
+    "fold_best_params": [
+      {
+        "hidden_dim": 68,
+        "n_layers": 8,
+        "dropout": 0.6123957592679836,
+        "learning_rate": 0.0002481040974867811,
+        "weight_decay": 1.5601864044243653e-05,
+        "batch_size": 23,
+        "epochs": 22,
+        "patience": 18
+      },
+      {
+        "hidden_dim": 34,
+        "n_layers": 6,
+        "dropout": 0.37646501290170414,
+        "learning_rate": 0.0016150593059496643,
+        "weight_decay": 2.544211258598793e-05,
+        "batch_size": 18,
+        "epochs": 55,
+        "patience": 8
+      },
+      {
+        "hidden_dim": 81,
+        "n_layers": 6,
+        "dropout": 0.7723683576439672,
+        "learning_rate": 6.706322521551015e-05,
+        "weight_decay": 4.27651521061609e-05,
+        "batch_size": 21,
+        "epochs": 28,
+        "patience": 20
+      },
+      {
+        "hidden_dim": 43,
+        "n_layers": 6,
+        "dropout": 0.6993274340169372,
+        "learning_rate": 0.0003984828954048989,
+        "weight_decay": 9.907216847578001e-05,
+        "batch_size": 39,
+        "epochs": 45,
+        "patience": 9
+      },
+      {
+        "hidden_dim": 108,
+        "n_layers": 6,
+        "dropout": 0.27433016406102423,
+        "learning_rate": 0.001077217644968693,
+        "weight_decay": 3.130769356316798e-05,
+        "batch_size": 61,
+        "epochs": 21,
+        "patience": 12
+      }
+    ],
+    "fold_label_distributions": [
+      {
+        "fold": 1,
+        "train": {
+          "counts": {
+            "negative": 71,
+            "positive": 84
+          },
+          "fractions": {
+            "negative": 0.45806451612903226,
+            "positive": 0.5419354838709678
+          },
+          "total": 155
+        },
+        "test": {
+          "counts": {
+            "negative": 23,
+            "positive": 16
+          },
+          "fractions": {
+            "negative": 0.5897435897435898,
+            "positive": 0.41025641025641024
+          },
+          "total": 39
+        }
+      },
+      {
+        "fold": 2,
+        "train": {
+          "counts": {
+            "negative": 75,
+            "positive": 80
+          },
+          "fractions": {
+            "negative": 0.4838709677419355,
+            "positive": 0.5161290322580645
+          },
+          "total": 155
+        },
+        "test": {
+          "counts": {
+            "negative": 19,
+            "positive": 20
+          },
+          "fractions": {
+            "negative": 0.48717948717948717,
+            "positive": 0.5128205128205128
+          },
+          "total": 39
+        }
+      },
+      {
+        "fold": 3,
+        "train": {
+          "counts": {
+            "negative": 76,
+            "positive": 79
+          },
+          "fractions": {
+            "negative": 0.49032258064516127,
+            "positive": 0.5096774193548387
+          },
+          "total": 155
+        },
+        "test": {
+          "counts": {
+            "negative": 18,
+            "positive": 21
+          },
+          "fractions": {
+            "negative": 0.46153846153846156,
+            "positive": 0.5384615384615384
+          },
+          "total": 39
+        }
+      },
+      {
+        "fold": 4,
+        "train": {
+          "counts": {
+            "negative": 74,
+            "positive": 81
+          },
+          "fractions": {
+            "negative": 0.4774193548387097,
+            "positive": 0.5225806451612903
+          },
+          "total": 155
+        },
+        "test": {
+          "counts": {
+            "negative": 20,
+            "positive": 19
+          },
+          "fractions": {
+            "negative": 0.5128205128205128,
+            "positive": 0.48717948717948717
+          },
+          "total": 39
+        }
+      },
+      {
+        "fold": 5,
+        "train": {
+          "counts": {
+            "negative": 80,
+            "positive": 76
+          },
+          "fractions": {
+            "negative": 0.5128205128205128,
+            "positive": 0.48717948717948717
+          },
+          "total": 156
+        },
+        "test": {
+          "counts": {
+            "negative": 14,
+            "positive": 24
+          },
+          "fractions": {
+            "negative": 0.3684210526315789,
+            "positive": 0.631578947368421
+          },
+          "total": 38
+        }
+      }
+    ],
+    "mean_r2": 0.09014657809582986,
+    "std_r2": 0.08838843473536886,
+    "mean_pearson_r": 0.3255150181190794,
+    "std_pearson_r": 0.16268892966705598,
+    "mean_pearson_r2": 0.13242771485727683,
+    "std_pearson_r2": 0.08594755224504212,
+    "mean_pearson_p": 0.18980413362455412,
+    "std_pearson_p": 0.3207652596138593,
+    "mean_spearman_rho": 0.21128898128898133,
+    "std_spearman_rho": 0.1528363928645105,
+    "mean_spearman_rho2": 0.06800199659797047,
+    "std_spearman_rho2": 0.05342476483249334,
+    "mean_spearman_p": 0.27600349226972754,
+    "std_spearman_p": 0.29328365941359
+  }
+}
