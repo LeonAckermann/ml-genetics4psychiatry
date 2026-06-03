@@ -1,0 +1,442 @@
+{
+  "hpo": {
+    "r2_scores": [
+      0.7058823529411765,
+      0.6666666666666666,
+      0.7540983606557377,
+      0.5652173913043478,
+      0.5454545454545454
+    ],
+    "mean_r2": 0.6474638634044948,
+    "std_r2": 0.08040244610511861,
+    "accuracy_scores": [
+      0.6153846153846154,
+      0.5128205128205128,
+      0.6153846153846154,
+      0.48717948717948717,
+      0.47368421052631576
+    ],
+    "precision_scores": [
+      0.782608695652174,
+      0.6551724137931034,
+      0.6216216216216216,
+      0.6842105263157895,
+      0.6666666666666666
+    ],
+    "recall_scores": [
+      0.6428571428571429,
+      0.6785714285714286,
+      0.9583333333333334,
+      0.48148148148148145,
+      0.46153846153846156
+    ],
+    "f1_scores": [
+      0.7058823529411765,
+      0.6666666666666666,
+      0.7540983606557377,
+      0.5652173913043478,
+      0.5454545454545454
+    ],
+    "balanced_accuracy_scores": [
+      0.5941558441558441,
+      0.38474025974025977,
+      0.5125000000000001,
+      0.4907407407407407,
+      0.4807692307692308
+    ],
+    "mean_accuracy": 0.5408906882591094,
+    "std_accuracy": 0.06210994908543734,
+    "mean_precision": 0.682055984809871,
+    "std_precision": 0.05427220184280732,
+    "mean_recall": 0.6445563695563696,
+    "std_recall": 0.17872037845984554,
+    "mean_f1": 0.6474638634044948,
+    "std_f1": 0.08040244610511861,
+    "mean_balanced_accuracy": 0.4925812150812151,
+    "std_balanced_accuracy": 0.06706227737308615,
+    "pearson_r2_scores": [
+      0.05557223936383715,
+      0.05804551648635062,
+      0.02884125519572814,
+      0.019769666053828003,
+      0.008264615515915804
+    ],
+    "pearson_p_values": [
+      0.14853237876690134,
+      0.1395429069665959,
+      0.30132506895311334,
+      0.3932380195327773,
+      0.5872591384419691
+    ],
+    "mean_pearson_r2": 0.034098658523131944,
+    "std_pearson_r2": 0.01967193317121594,
+    "mean_pearson_p": 0.3139795025322714,
+    "std_pearson_p": 0.16668814189620235,
+    "fold_best_params": [
+      {
+        "hidden_dim": 68,
+        "n_layers": 8,
+        "dropout": 0.6123957592679836,
+        "learning_rate": 0.0002481040974867811,
+        "weight_decay": 1.5601864044243653e-05,
+        "batch_size": 23,
+        "epochs": 22,
+        "patience": 18
+      },
+      {
+        "hidden_dim": 43,
+        "n_layers": 5,
+        "dropout": 0.1933736749301918,
+        "learning_rate": 9.16977078566482e-06,
+        "weight_decay": 3.271390558111398e-05,
+        "batch_size": 58,
+        "epochs": 47,
+        "patience": 13
+      },
+      {
+        "hidden_dim": 112,
+        "n_layers": 1,
+        "dropout": 0.6212483371756625,
+        "learning_rate": 2.766962957045446e-05,
+        "weight_decay": 3.5931083780807194e-05,
+        "batch_size": 45,
+        "epochs": 36,
+        "patience": 11
+      },
+      {
+        "hidden_dim": 43,
+        "n_layers": 6,
+        "dropout": 0.6993274340169372,
+        "learning_rate": 0.0003984828954048989,
+        "weight_decay": 9.907216847578001e-05,
+        "batch_size": 39,
+        "epochs": 45,
+        "patience": 9
+      },
+      {
+        "hidden_dim": 120,
+        "n_layers": 4,
+        "dropout": 0.4555540384926542,
+        "learning_rate": 2.185907696335168e-06,
+        "weight_decay": 4.2634979106553773e-05,
+        "batch_size": 52,
+        "epochs": 55,
+        "patience": 10
+      }
+    ],
+    "fold_label_distributions": [
+      {
+        "fold": 1,
+        "train": {
+          "counts": {
+            "negative": 45,
+            "positive": 94
+          },
+          "fractions": {
+            "negative": 0.3237410071942446,
+            "positive": 0.6762589928057554
+          },
+          "total": 139
+        },
+        "validation": {
+          "counts": {
+            "negative": 5,
+            "positive": 11
+          },
+          "fractions": {
+            "negative": 0.3125,
+            "positive": 0.6875
+          },
+          "total": 16
+        },
+        "test": {
+          "counts": {
+            "negative": 11,
+            "positive": 28
+          },
+          "fractions": {
+            "negative": 0.28205128205128205,
+            "positive": 0.717948717948718
+          },
+          "total": 39
+        }
+      },
+      {
+        "fold": 2,
+        "train": {
+          "counts": {
+            "negative": 45,
+            "positive": 94
+          },
+          "fractions": {
+            "negative": 0.3237410071942446,
+            "positive": 0.6762589928057554
+          },
+          "total": 139
+        },
+        "validation": {
+          "counts": {
+            "negative": 5,
+            "positive": 11
+          },
+          "fractions": {
+            "negative": 0.3125,
+            "positive": 0.6875
+          },
+          "total": 16
+        },
+        "test": {
+          "counts": {
+            "negative": 11,
+            "positive": 28
+          },
+          "fractions": {
+            "negative": 0.28205128205128205,
+            "positive": 0.717948717948718
+          },
+          "total": 39
+        }
+      },
+      {
+        "fold": 3,
+        "train": {
+          "counts": {
+            "negative": 41,
+            "positive": 98
+          },
+          "fractions": {
+            "negative": 0.2949640287769784,
+            "positive": 0.7050359712230215
+          },
+          "total": 139
+        },
+        "validation": {
+          "counts": {
+            "negative": 5,
+            "positive": 11
+          },
+          "fractions": {
+            "negative": 0.3125,
+            "positive": 0.6875
+          },
+          "total": 16
+        },
+        "test": {
+          "counts": {
+            "negative": 15,
+            "positive": 24
+          },
+          "fractions": {
+            "negative": 0.38461538461538464,
+            "positive": 0.6153846153846154
+          },
+          "total": 39
+        }
+      },
+      {
+        "fold": 4,
+        "train": {
+          "counts": {
+            "negative": 44,
+            "positive": 95
+          },
+          "fractions": {
+            "negative": 0.31654676258992803,
+            "positive": 0.6834532374100719
+          },
+          "total": 139
+        },
+        "validation": {
+          "counts": {
+            "negative": 5,
+            "positive": 11
+          },
+          "fractions": {
+            "negative": 0.3125,
+            "positive": 0.6875
+          },
+          "total": 16
+        },
+        "test": {
+          "counts": {
+            "negative": 12,
+            "positive": 27
+          },
+          "fractions": {
+            "negative": 0.3076923076923077,
+            "positive": 0.6923076923076923
+          },
+          "total": 39
+        }
+      },
+      {
+        "fold": 5,
+        "train": {
+          "counts": {
+            "negative": 45,
+            "positive": 95
+          },
+          "fractions": {
+            "negative": 0.32142857142857145,
+            "positive": 0.6785714285714286
+          },
+          "total": 140
+        },
+        "validation": {
+          "counts": {
+            "negative": 4,
+            "positive": 12
+          },
+          "fractions": {
+            "negative": 0.25,
+            "positive": 0.75
+          },
+          "total": 16
+        },
+        "test": {
+          "counts": {
+            "negative": 12,
+            "positive": 26
+          },
+          "fractions": {
+            "negative": 0.3157894736842105,
+            "positive": 0.6842105263157895
+          },
+          "total": 38
+        }
+      }
+    ],
+    "search_space": {
+      "hidden_dim": [
+        32,
+        128
+      ],
+      "n_layers": [
+        1,
+        8
+      ],
+      "dropout": [
+        0.1,
+        0.8
+      ],
+      "learning_rate": [
+        "1e-6",
+        "1e-2"
+      ],
+      "weight_decay": [
+        0.0,
+        0.0001
+      ],
+      "batch_size": [
+        16,
+        64
+      ],
+      "epochs": [
+        20,
+        60
+      ],
+      "patience": [
+        5,
+        20
+      ]
+    }
+  },
+  "experiment": "residual_dnn_SCZ_p0.0001_low_0.1_1",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        0.1
+      ],
+      "col_ratio": [
+        1
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.0001
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "residual_dnn",
+      "type": "binary_classification",
+      "p_value_binary": 1e-05
+    },
+    "hpo": {
+      "run": true,
+      "n_trials": 2,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "hidden_dim": [
+          32,
+          128
+        ],
+        "n_layers": [
+          1,
+          8
+        ],
+        "dropout": [
+          0.1,
+          0.8
+        ],
+        "learning_rate": [
+          "1e-6",
+          "1e-2"
+        ],
+        "weight_decay": [
+          0.0,
+          0.0001
+        ],
+        "batch_size": [
+          16,
+          64
+        ],
+        "epochs": [
+          20,
+          60
+        ],
+        "patience": [
+          5,
+          20
+        ]
+      }
+    },
+    "load_best_params": false,
+    "evaluation": {
+      "metrics": [
+        "accuracy",
+        "precision",
+        "recall",
+        "f1"
+      ],
+      "binary_threshold": null
+    },
+    "verbose": false
+  },
+  "timestamp": "20260528_163450"
+}

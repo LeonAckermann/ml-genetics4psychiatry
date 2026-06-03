@@ -22,7 +22,7 @@ data:
   save_splits: true
   polars: true
   chunk_size: 10000
-  row_ratio: [0.1]
+  row_ratio: [0.05]
   col_ratio: [1]
   top_rows: true
   top_cols: true

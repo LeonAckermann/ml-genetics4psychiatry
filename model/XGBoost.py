@@ -8,11 +8,12 @@ class XGBoostTreeModel:
         self.model = xgb.XGBRegressor(
             random_state=random_state,
             verbosity=0,
+            n_jobs=1,
             n_estimators=n_estimators,
             max_depth=max_depth,
             learning_rate=learning_rate,
             subsample=subsample,
-            colsample_bytree=colsample_bytree
+            colsample_bytree=colsample_bytree,
         )
 
     def fit(self, X_train, y_train):

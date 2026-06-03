@@ -1,0 +1,300 @@
+{
+  "experiment": "ridge_logistic_regression_SCZ_p0.0001_low_0.2_1_binary_classification",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        0.2
+      ],
+      "col_ratio": [
+        1
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.05
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "ridge",
+      "type": "binary_classification",
+      "p_value_binary": 1e-05
+    },
+    "hpo": {
+      "run": true,
+      "n_trials": 1,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "alpha": [
+          1e-05,
+          10000
+        ]
+      }
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260529_134728",
+  "hpo": {
+    "fold_metrics": [
+      {
+        "threshold": 0.5,
+        "accuracy": 0.6538461538461539,
+        "precision": 0.7727272727272727,
+        "recall": 0.6666666666666666,
+        "f1": 0.7157894736842105,
+        "balanced_accuracy": 0.6481481481481481,
+        "pearson_r2": 0.0666749685757307,
+        "pearson_p": 0.022458032915339425,
+        "tn": 17,
+        "fp": 10,
+        "fn": 17,
+        "tp": 34
+      },
+      {
+        "threshold": 0.5,
+        "accuracy": 0.47435897435897434,
+        "precision": 0.4444444444444444,
+        "recall": 0.5555555555555556,
+        "f1": 0.49382716049382713,
+        "balanced_accuracy": 0.4801587301587302,
+        "pearson_r2": 0.00010417350507960388,
+        "pearson_p": 0.9293293278516445,
+        "tn": 17,
+        "fp": 25,
+        "fn": 16,
+        "tp": 20
+      },
+      {
+        "threshold": 0.5,
+        "accuracy": 0.47435897435897434,
+        "precision": 0.5526315789473685,
+        "recall": 0.4666666666666667,
+        "f1": 0.5060240963855421,
+        "balanced_accuracy": 0.47575757575757577,
+        "pearson_r2": 0.005280656548676858,
+        "pearson_p": 0.5272153500530282,
+        "tn": 16,
+        "fp": 17,
+        "fn": 24,
+        "tp": 21
+      },
+      {
+        "threshold": 0.5,
+        "accuracy": 0.5974025974025974,
+        "precision": 0.6666666666666666,
+        "recall": 0.6222222222222222,
+        "f1": 0.6436781609195402,
+        "balanced_accuracy": 0.5923611111111111,
+        "pearson_r2": 0.03160764622923444,
+        "pearson_p": 0.12188856919650887,
+        "tn": 18,
+        "fp": 14,
+        "fn": 17,
+        "tp": 28
+      },
+      {
+        "threshold": 0.5,
+        "accuracy": 0.5194805194805194,
+        "precision": 0.5434782608695652,
+        "recall": 0.6097560975609756,
+        "f1": 0.5747126436781609,
+        "balanced_accuracy": 0.5132113821138211,
+        "pearson_r2": 0.009083160520240404,
+        "pearson_p": 0.4096534525461009,
+        "tn": 15,
+        "fp": 21,
+        "fn": 16,
+        "tp": 25
+      }
+    ],
+    "fold_best_params": [
+      {
+        "alpha": 0.023488812958533105
+      },
+      {
+        "alpha": 0.00010851533051235265
+      },
+      {
+        "alpha": 326.27164906266677
+      },
+      {
+        "alpha": 7963.4933416687045
+      },
+      {
+        "alpha": 113.36817547718104
+      }
+    ],
+    "fold_label_distributions": [
+      {
+        "fold": 1,
+        "train": {
+          "counts": {
+            "negative": 143,
+            "positive": 167
+          },
+          "fractions": {
+            "negative": 0.4612903225806452,
+            "positive": 0.5387096774193548
+          },
+          "total": 310
+        },
+        "test": {
+          "counts": {
+            "negative": 27,
+            "positive": 51
+          },
+          "fractions": {
+            "negative": 0.34615384615384615,
+            "positive": 0.6538461538461539
+          },
+          "total": 78
+        }
+      },
+      {
+        "fold": 2,
+        "train": {
+          "counts": {
+            "negative": 128,
+            "positive": 182
+          },
+          "fractions": {
+            "negative": 0.4129032258064516,
+            "positive": 0.5870967741935483
+          },
+          "total": 310
+        },
+        "test": {
+          "counts": {
+            "negative": 42,
+            "positive": 36
+          },
+          "fractions": {
+            "negative": 0.5384615384615384,
+            "positive": 0.46153846153846156
+          },
+          "total": 78
+        }
+      },
+      {
+        "fold": 3,
+        "train": {
+          "counts": {
+            "negative": 137,
+            "positive": 173
+          },
+          "fractions": {
+            "negative": 0.44193548387096776,
+            "positive": 0.5580645161290323
+          },
+          "total": 310
+        },
+        "test": {
+          "counts": {
+            "negative": 33,
+            "positive": 45
+          },
+          "fractions": {
+            "negative": 0.4230769230769231,
+            "positive": 0.5769230769230769
+          },
+          "total": 78
+        }
+      },
+      {
+        "fold": 4,
+        "train": {
+          "counts": {
+            "negative": 138,
+            "positive": 173
+          },
+          "fractions": {
+            "negative": 0.4437299035369775,
+            "positive": 0.5562700964630225
+          },
+          "total": 311
+        },
+        "test": {
+          "counts": {
+            "negative": 32,
+            "positive": 45
+          },
+          "fractions": {
+            "negative": 0.4155844155844156,
+            "positive": 0.5844155844155844
+          },
+          "total": 77
+        }
+      },
+      {
+        "fold": 5,
+        "train": {
+          "counts": {
+            "negative": 134,
+            "positive": 177
+          },
+          "fractions": {
+            "negative": 0.43086816720257237,
+            "positive": 0.5691318327974276
+          },
+          "total": 311
+        },
+        "test": {
+          "counts": {
+            "negative": 36,
+            "positive": 41
+          },
+          "fractions": {
+            "negative": 0.4675324675324675,
+            "positive": 0.5324675324675324
+          },
+          "total": 77
+        }
+      }
+    ],
+    "mean_accuracy": 0.5438894438894438,
+    "std_accuracy": 0.07101957989242412,
+    "mean_precision": 0.5959896447310635,
+    "std_precision": 0.11299092495672075,
+    "mean_recall": 0.5841734417344174,
+    "std_recall": 0.06860632584775432,
+    "mean_f1": 0.5868063070322562,
+    "std_f1": 0.08389065381250685,
+    "mean_balanced_accuracy": 0.5419273894578773,
+    "std_balanced_accuracy": 0.06759412763112374,
+    "mean_pearson_r2": 0.0225501210757924,
+    "std_pearson_r2": 0.024545691771890765,
+    "mean_pearson_p": 0.4021089465125244,
+    "std_pearson_p": 0.32134969685244913
+  }
+}

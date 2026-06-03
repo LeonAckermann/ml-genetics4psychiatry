@@ -1,0 +1,317 @@
+{
+  "hpo": {
+    "r2_scores": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "mean_r2": 0.0,
+    "std_r2": 0.0,
+    "pearson_corr_scores": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "pearson_r2_scores": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "pearson_p_values": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "mean_pearson_corr": 0.0,
+    "std_pearson_corr": 0.0,
+    "mean_pearson_r2": 0.0,
+    "std_pearson_r2": 0.0,
+    "mean_pearson_p": 1.0,
+    "std_pearson_p": 0.0,
+    "spearman_corr_scores": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "spearman_rank_scores": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "spearman_p_values": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "mean_spearman_corr": 0.0,
+    "std_spearman_corr": 0.0,
+    "mean_spearman_rank": 0.0,
+    "std_spearman_rank": 0.0,
+    "mean_spearman_p": 1.0,
+    "std_spearman_p": 0.0,
+    "fold_best_params": [
+      {
+        "hidden_dim": 96,
+        "n_layers": 4,
+        "dropout": 0.6757998960081883,
+        "learning_rate": 6.608076148805384e-05,
+        "weight_decay": 2.207744439730411e-05,
+        "batch_size": 46,
+        "epochs": 39,
+        "patience": 17
+      },
+      {
+        "hidden_dim": 51,
+        "n_layers": 5,
+        "dropout": 0.6133953149533872,
+        "learning_rate": 8.55995089898706e-05,
+        "weight_decay": 8.105614282287358e-05,
+        "batch_size": 43,
+        "epochs": 33,
+        "patience": 12
+      },
+      {
+        "hidden_dim": 81,
+        "n_layers": 6,
+        "dropout": 0.7723683576439672,
+        "learning_rate": 6.706322521551027e-05,
+        "weight_decay": 4.27651521061609e-05,
+        "batch_size": 21,
+        "epochs": 28,
+        "patience": 20
+      },
+      {
+        "hidden_dim": 109,
+        "n_layers": 7,
+        "dropout": 0.3659792095265166,
+        "learning_rate": 2.7773442936716883e-05,
+        "weight_decay": 5.608687014477373e-05,
+        "batch_size": 35,
+        "epochs": 54,
+        "patience": 16
+      },
+      {
+        "hidden_dim": 54,
+        "n_layers": 6,
+        "dropout": 0.505058277716772,
+        "learning_rate": 6.216454719971948e-05,
+        "weight_decay": 5.765129545869833e-05,
+        "batch_size": 31,
+        "epochs": 46,
+        "patience": 6
+      }
+    ],
+    "search_space": {
+      "hidden_dim": [
+        32,
+        128
+      ],
+      "n_layers": [
+        1,
+        8
+      ],
+      "dropout": [
+        0.1,
+        0.8
+      ],
+      "learning_rate": [
+        "1e-6",
+        "1e-2"
+      ],
+      "weight_decay": [
+        0.0,
+        0.0001
+      ],
+      "batch_size": [
+        16,
+        64
+      ],
+      "epochs": [
+        20,
+        60
+      ],
+      "patience": [
+        5,
+        20
+      ]
+    }
+  },
+  "experiment": "residual_dnn_SCZ_p0.0001_low_0.2_1",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 5,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        0.2
+      ],
+      "col_ratio": [
+        1
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.0001
+    },
+    "experiment": {
+      "run": true
+    },
+    "model": {
+      "name": "residual_dnn",
+      "hidden_dims": [
+        128,
+        128,
+        64,
+        64,
+        32,
+        32
+      ],
+      "output_dim": 1,
+      "dropout": 0.4,
+      "learning_rate": 1e-05,
+      "epochs": 300,
+      "batch_size": 32,
+      "patience": 20,
+      "type": "binary_classification",
+      "p_value_binary": 0.05
+    },
+    "hpo": {
+      "run": false,
+      "n_trials": 30,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "hidden_dim": [
+          32,
+          128
+        ],
+        "n_layers": [
+          1,
+          8
+        ],
+        "dropout": [
+          0.1,
+          0.8
+        ],
+        "learning_rate": [
+          "1e-6",
+          "1e-2"
+        ],
+        "weight_decay": [
+          0.0,
+          0.0001
+        ],
+        "batch_size": [
+          16,
+          64
+        ],
+        "epochs": [
+          20,
+          60
+        ],
+        "patience": [
+          5,
+          20
+        ]
+      }
+    },
+    "load_best_params": true,
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse",
+        "accuracy",
+        "precision",
+        "recall",
+        "f1"
+      ],
+      "binary_threshold": null
+    },
+    "verbose": false,
+    "seed": 46
+  },
+  "timestamp": "20260528_142227",
+  "per_seed": [
+    {
+      "binary_threshold": 0.0,
+      "accuracy": 0.782051282051282,
+      "precision": 1.0,
+      "recall": 0.782051282051282,
+      "f1": 0.8776978417266187,
+      "seed": 42
+    },
+    {
+      "binary_threshold": 0.0,
+      "accuracy": 0.8333333333333334,
+      "precision": 1.0,
+      "recall": 0.8333333333333334,
+      "f1": 0.9090909090909091,
+      "seed": 43
+    },
+    {
+      "binary_threshold": 0.0,
+      "accuracy": 0.7051282051282052,
+      "precision": 1.0,
+      "recall": 0.7051282051282052,
+      "f1": 0.8270676691729323,
+      "seed": 44
+    },
+    {
+      "binary_threshold": 0.0,
+      "accuracy": 0.7051282051282052,
+      "precision": 1.0,
+      "recall": 0.7051282051282052,
+      "f1": 0.8270676691729323,
+      "seed": 45
+    },
+    {
+      "binary_threshold": 0.0,
+      "accuracy": 0.7948717948717948,
+      "precision": 1.0,
+      "recall": 0.7948717948717948,
+      "f1": 0.8857142857142857,
+      "seed": 46
+    }
+  ],
+  "aggregated": {
+    "binary_threshold": 0.0,
+    "accuracy": 0.764102564102564,
+    "precision": 1.0,
+    "recall": 0.764102564102564,
+    "f1": 0.8662790697674418
+  }
+}

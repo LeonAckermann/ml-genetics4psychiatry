@@ -1,0 +1,144 @@
+{
+  "hpo": {
+    "r2_scores": [
+      -6.5315070152282715,
+      -5.506722450256348,
+      -7.592826843261719,
+      -5.490900993347168,
+      -5.609398365020752
+    ],
+    "mean_r2": -6.146271133422852,
+    "std_r2": 0.8206942200835088,
+    "pearson_r2_scores": [
+      1.503805469837971e-05,
+      0.011880065314471722,
+      0.005082420539110899,
+      0.046437665820121765,
+      0.047123901546001434
+    ],
+    "pearson_p_values": [
+      0.9648008942604065,
+      0.21704620122909546,
+      0.37961289286613464,
+      0.013805634342133999,
+      0.0072234077379107475
+    ],
+    "mean_pearson_r2": 0.022107819095253944,
+    "std_pearson_r2": 0.020495403558015823,
+    "mean_pearson_p": 0.316497802734375,
+    "std_pearson_p": 0.35254624485969543,
+    "spearman_rank_scores": [
+      2.5880817352083157e-05,
+      0.019074910783536653,
+      0.007803887997409357,
+      0.030892878298654884,
+      0.042061729500227844
+    ],
+    "spearman_p_values": [
+      0.9538336197061611,
+      0.11710788290984962,
+      0.27594859094316826,
+      0.045472260739640606,
+      0.01125618100578042
+    ],
+    "mean_spearman_rank": 0.019971857479436163,
+    "std_spearman_rank": 0.015191689315701447,
+    "mean_spearman_p": 0.28072370706092,
+    "std_spearman_p": 0.3486619809335073,
+    "fold_best_params": [],
+    "search_space": null
+  },
+  "experiment": "linear_regression_SCZ_p0.0001_low_0.4_0.5",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        0.4
+      ],
+      "col_ratio": [
+        0.5
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.0001
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "linear_regression"
+    },
+    "hpo": {
+      "run": true,
+      "n_trials": 30,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "hidden_dim": [
+          32,
+          128
+        ],
+        "n_layers": [
+          1,
+          8
+        ],
+        "dropout": [
+          0.1,
+          0.8
+        ],
+        "learning_rate": [
+          "1e-6",
+          "1e-2"
+        ],
+        "weight_decay": [
+          0.0,
+          0.0001
+        ],
+        "batch_size": [
+          16,
+          64
+        ],
+        "epochs": [
+          20,
+          60
+        ],
+        "patience": [
+          5,
+          20
+        ]
+      }
+    },
+    "load_best_params": true,
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260518_000331"
+}

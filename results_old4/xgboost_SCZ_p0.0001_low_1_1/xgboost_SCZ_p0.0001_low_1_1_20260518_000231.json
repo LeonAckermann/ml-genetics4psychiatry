@@ -1,0 +1,271 @@
+{
+  "hpo": {
+    "r2_scores": [
+      0.023535490036010742,
+      0.003064870834350586,
+      0.06630367040634155,
+      0.013313651084899902,
+      0.04056161642074585
+    ],
+    "mean_r2": 0.029355859756469725,
+    "std_r2": 0.022240301056801224,
+    "pearson_corr_scores": [
+      0.1767977774143219,
+      0.06983805447816849,
+      0.2952425479888916,
+      0.1809091418981552,
+      0.23944881558418274
+    ],
+    "pearson_r2_scores": [
+      0.03125745430588722,
+      0.004877354018390179,
+      0.08716816455125809,
+      0.03272811695933342,
+      0.057335734367370605
+    ],
+    "pearson_p_values": [
+      0.00045933882938697934,
+      0.16978707909584045,
+      3.0379698756632934e-09,
+      0.000341502163792029,
+      1.8335176719119772e-06
+    ],
+    "mean_pearson_corr": 0.1924472600221634,
+    "std_pearson_corr": 0.07508271187543869,
+    "mean_pearson_r2": 0.04267336428165436,
+    "std_pearson_r2": 0.027758032083511353,
+    "mean_pearson_p": 0.03411795198917389,
+    "std_pearson_p": 0.06783480942249298,
+    "spearman_corr_scores": [
+      0.1669998359423982,
+      -0.005189673567857685,
+      0.12190223026773286,
+      0.08340724532898369,
+      0.14994368754910953
+    ],
+    "spearman_rank_scores": [
+      0.027888945204787914,
+      2.6932711740920716e-05,
+      0.014860153744247366,
+      0.006956768573369272,
+      0.022483109435824985
+    ],
+    "spearman_p_values": [
+      0.0009450298308743771,
+      0.9188395593892756,
+      0.016287257086515534,
+      0.10090313095310192,
+      0.003068664132624584
+    ],
+    "mean_spearman_corr": 0.10341266510407332,
+    "std_spearman_corr": 0.061229099536632636,
+    "mean_spearman_rank": 0.014443181933994093,
+    "std_spearman_rank": 0.010094329856941746,
+    "mean_spearman_p": 0.20800872827847844,
+    "std_spearman_p": 0.3573191870188362,
+    "fold_best_params": [
+      {
+        "n_estimators": 60,
+        "max_depth": 3,
+        "learning_rate": 0.1953868172459854,
+        "subsample": 0.7751442552241152,
+        "colsample_bytree": 0.9720081708727029,
+        "reg_alpha": 0.05567791679177008,
+        "reg_lambda": 0.18102483146394527,
+        "min_child_weight": 1.3678439660407202,
+        "gamma": 0.21413421967772028,
+        "early_stopping_rounds": 13.362764773592113,
+        "random_state": 42,
+        "verbosity": 0,
+        "n_jobs": 1
+      },
+      {
+        "n_estimators": 64,
+        "max_depth": 3,
+        "learning_rate": 0.1200302576121295,
+        "subsample": 0.5724426450322391,
+        "colsample_bytree": 0.8571373013907823,
+        "reg_alpha": 0.05979817804230916,
+        "reg_lambda": 0.30539828005970393,
+        "min_child_weight": 1.5044701053505096,
+        "gamma": 0.2802749722110851,
+        "early_stopping_rounds": 16.64968173887617,
+        "random_state": 42,
+        "verbosity": 0,
+        "n_jobs": 1
+      },
+      {
+        "n_estimators": 42,
+        "max_depth": 3,
+        "learning_rate": 0.14385207863470575,
+        "subsample": 0.7275946483614439,
+        "colsample_bytree": 0.9589149832456434,
+        "reg_alpha": 0.09908226809807817,
+        "reg_lambda": 0.4025086002902261,
+        "min_child_weight": 1.7548308114328448,
+        "gamma": 0.15472122768655183,
+        "early_stopping_rounds": 5.883483820581161,
+        "random_state": 42,
+        "verbosity": 0,
+        "n_jobs": 1
+      },
+      {
+        "n_estimators": 90,
+        "max_depth": 3,
+        "learning_rate": 0.13405416804270642,
+        "subsample": 0.9062494981258566,
+        "colsample_bytree": 0.8368249654528008,
+        "reg_alpha": 0.06367456535660754,
+        "reg_lambda": 0.17989300739621045,
+        "min_child_weight": 1.7669031378211755,
+        "gamma": 0.24671573189554263,
+        "early_stopping_rounds": 17.334813275881494,
+        "random_state": 42,
+        "verbosity": 0,
+        "n_jobs": 1
+      },
+      {
+        "n_estimators": 51,
+        "max_depth": 3,
+        "learning_rate": 0.1970268719537483,
+        "subsample": 0.6292649503515583,
+        "colsample_bytree": 0.9446142564632692,
+        "reg_alpha": 0.08489961108525408,
+        "reg_lambda": 0.30398402185298884,
+        "min_child_weight": 1.8015866106603093,
+        "gamma": 0.23633911638325586,
+        "early_stopping_rounds": 17.703908180794745,
+        "random_state": 42,
+        "verbosity": 0,
+        "n_jobs": 1
+      }
+    ],
+    "search_space": {
+      "hidden_dim": [
+        32,
+        128
+      ],
+      "n_layers": [
+        1,
+        8
+      ],
+      "dropout": [
+        0.1,
+        0.8
+      ],
+      "learning_rate": [
+        "1e-6",
+        "1e-2"
+      ],
+      "weight_decay": [
+        0.0,
+        0.0001
+      ],
+      "batch_size": [
+        16,
+        64
+      ],
+      "epochs": [
+        20,
+        60
+      ],
+      "patience": [
+        5,
+        20
+      ]
+    }
+  },
+  "experiment": "xgboost_SCZ_p0.0001_low_1_1",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        1
+      ],
+      "col_ratio": [
+        1
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.0001
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "xgboost"
+    },
+    "hpo": {
+      "run": true,
+      "n_trials": 30,
+      "outer_cv": 5,
+      "inner_cv": 5,
+      "search_space": {
+        "hidden_dim": [
+          32,
+          128
+        ],
+        "n_layers": [
+          1,
+          8
+        ],
+        "dropout": [
+          0.1,
+          0.8
+        ],
+        "learning_rate": [
+          "1e-6",
+          "1e-2"
+        ],
+        "weight_decay": [
+          0.0,
+          0.0001
+        ],
+        "batch_size": [
+          16,
+          64
+        ],
+        "epochs": [
+          20,
+          60
+        ],
+        "patience": [
+          5,
+          20
+        ]
+      }
+    },
+    "load_best_params": true,
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260518_000231"
+}

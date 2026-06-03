@@ -1,0 +1,283 @@
+{
+  "experiment": "linear_regression_SCZ_p0.0001_low_0.2_1_binary_classification",
+  "config": {
+    "construct_gwas_mri": {
+      "run": false
+    },
+    "plink2": {
+      "prepare": false
+    },
+    "sampling": {
+      "run": false
+    },
+    "data": {
+      "illness": [
+        "SCZ"
+      ],
+      "p_clump": [
+        0.0001
+      ],
+      "distribution": [
+        "low"
+      ],
+      "target": "Z",
+      "test_size": 0.2,
+      "n_splits": 10,
+      "save_splits": true,
+      "polars": true,
+      "chunk_size": 10000,
+      "row_ratio": [
+        0.2
+      ],
+      "col_ratio": [
+        1
+      ],
+      "top_rows": true,
+      "top_cols": true,
+      "mri_p_value": 0.05
+    },
+    "experiment": {
+      "run": false
+    },
+    "model": {
+      "name": "linear_regression",
+      "type": "binary_classification",
+      "p_value_binary": 1e-05
+    },
+    "hpo": {
+      "run": true,
+      "outer_cv": 5
+    },
+    "evaluation": {
+      "metrics": [
+        "r2",
+        "mse",
+        "pearson_r2"
+      ],
+      "binary_threshold": null
+    }
+  },
+  "timestamp": "20260529_133222",
+  "hpo": {
+    "fold_metrics": [
+      {
+        "threshold": 0.0,
+        "accuracy": 0.6282051282051282,
+        "precision": 0.6617647058823529,
+        "recall": 0.8823529411764706,
+        "f1": 0.7563025210084033,
+        "balanced_accuracy": 0.5152505446623094,
+        "pearson_r2": 0.03132988953804137,
+        "pearson_p": 0.1210758700667959,
+        "tn": 4,
+        "fp": 23,
+        "fn": 6,
+        "tp": 45
+      },
+      {
+        "threshold": 0.0,
+        "accuracy": 0.5128205128205128,
+        "precision": 0.48484848484848486,
+        "recall": 0.8888888888888888,
+        "f1": 0.6274509803921569,
+        "balanced_accuracy": 0.5396825396825397,
+        "pearson_r2": 0.00037719462653817737,
+        "pearson_p": 0.865975495928073,
+        "tn": 8,
+        "fp": 34,
+        "fn": 4,
+        "tp": 32
+      },
+      {
+        "threshold": 0.0,
+        "accuracy": 0.5256410256410257,
+        "precision": 0.5666666666666667,
+        "recall": 0.7555555555555555,
+        "f1": 0.6476190476190476,
+        "balanced_accuracy": 0.48383838383838385,
+        "pearson_r2": 0.0015870937971243747,
+        "pearson_p": 0.7291174701930537,
+        "tn": 7,
+        "fp": 26,
+        "fn": 11,
+        "tp": 34
+      },
+      {
+        "threshold": 0.0,
+        "accuracy": 0.5714285714285714,
+        "precision": 0.59375,
+        "recall": 0.8444444444444444,
+        "f1": 0.6972477064220184,
+        "balanced_accuracy": 0.5159722222222223,
+        "pearson_r2": 0.01550722284105536,
+        "pearson_p": 0.28055987296652196,
+        "tn": 6,
+        "fp": 26,
+        "fn": 7,
+        "tp": 38
+      },
+      {
+        "threshold": 0.0,
+        "accuracy": 0.5064935064935064,
+        "precision": 0.5217391304347826,
+        "recall": 0.8780487804878049,
+        "f1": 0.6545454545454545,
+        "balanced_accuracy": 0.4806910569105691,
+        "pearson_r2": 0.0016447821563392577,
+        "pearson_p": 0.7261886189671362,
+        "tn": 3,
+        "fp": 33,
+        "fn": 5,
+        "tp": 36
+      }
+    ],
+    "fold_best_params": [
+      {},
+      {},
+      {},
+      {},
+      {}
+    ],
+    "fold_label_distributions": [
+      {
+        "fold": 1,
+        "train": {
+          "counts": {
+            "negative": 143,
+            "positive": 167
+          },
+          "fractions": {
+            "negative": 0.4612903225806452,
+            "positive": 0.5387096774193548
+          },
+          "total": 310
+        },
+        "test": {
+          "counts": {
+            "negative": 27,
+            "positive": 51
+          },
+          "fractions": {
+            "negative": 0.34615384615384615,
+            "positive": 0.6538461538461539
+          },
+          "total": 78
+        }
+      },
+      {
+        "fold": 2,
+        "train": {
+          "counts": {
+            "negative": 128,
+            "positive": 182
+          },
+          "fractions": {
+            "negative": 0.4129032258064516,
+            "positive": 0.5870967741935483
+          },
+          "total": 310
+        },
+        "test": {
+          "counts": {
+            "negative": 42,
+            "positive": 36
+          },
+          "fractions": {
+            "negative": 0.5384615384615384,
+            "positive": 0.46153846153846156
+          },
+          "total": 78
+        }
+      },
+      {
+        "fold": 3,
+        "train": {
+          "counts": {
+            "negative": 137,
+            "positive": 173
+          },
+          "fractions": {
+            "negative": 0.44193548387096776,
+            "positive": 0.5580645161290323
+          },
+          "total": 310
+        },
+        "test": {
+          "counts": {
+            "negative": 33,
+            "positive": 45
+          },
+          "fractions": {
+            "negative": 0.4230769230769231,
+            "positive": 0.5769230769230769
+          },
+          "total": 78
+        }
+      },
+      {
+        "fold": 4,
+        "train": {
+          "counts": {
+            "negative": 138,
+            "positive": 173
+          },
+          "fractions": {
+            "negative": 0.4437299035369775,
+            "positive": 0.5562700964630225
+          },
+          "total": 311
+        },
+        "test": {
+          "counts": {
+            "negative": 32,
+            "positive": 45
+          },
+          "fractions": {
+            "negative": 0.4155844155844156,
+            "positive": 0.5844155844155844
+          },
+          "total": 77
+        }
+      },
+      {
+        "fold": 5,
+        "train": {
+          "counts": {
+            "negative": 134,
+            "positive": 177
+          },
+          "fractions": {
+            "negative": 0.43086816720257237,
+            "positive": 0.5691318327974276
+          },
+          "total": 311
+        },
+        "test": {
+          "counts": {
+            "negative": 36,
+            "positive": 41
+          },
+          "fractions": {
+            "negative": 0.4675324675324675,
+            "positive": 0.5324675324675324
+          },
+          "total": 77
+        }
+      }
+    ],
+    "mean_accuracy": 0.5489177489177489,
+    "std_accuracy": 0.04568995138978842,
+    "mean_precision": 0.5657537975664574,
+    "std_precision": 0.06080407181273697,
+    "mean_recall": 0.8498581221106329,
+    "std_recall": 0.049590945153136036,
+    "mean_f1": 0.6766331419974161,
+    "std_f1": 0.04587099050195158,
+    "mean_balanced_accuracy": 0.5070869494632048,
+    "std_balanced_accuracy": 0.022114718210213186,
+    "mean_pearson_r2": 0.010089236591819708,
+    "std_pearson_r2": 0.011986983895279298,
+    "mean_pearson_p": 0.5445834656243161,
+    "std_pearson_p": 0.28961809635464975
+  }
+}
