@@ -313,7 +313,10 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
         df = pd.concat([significant, non_significant_sampled], ignore_index=True)
         df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
         # save as txt file
-        output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
+        if sample_p:
+            output_path = Path(f"data/sampled_p/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
+        else:
+            output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
         # make sure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output_path, sep="\t", index=False)
