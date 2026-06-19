@@ -100,7 +100,7 @@ def _train_dnn(
         if task_type in ("classification", "binary_classification")
         else nn.MSELoss()
     )
-    optimizer = optim.Adam(model.parameters(), lr=model_cfg["lr"])
+    optimizer = optim.Adam(model.parameters(), lr=model_cfg["lr"], weight_decay=model_cfg.get("weight_decay", 0.0))
 
     patience = int(model_cfg.get("patience", 20))
     best_val_loss = float("inf")

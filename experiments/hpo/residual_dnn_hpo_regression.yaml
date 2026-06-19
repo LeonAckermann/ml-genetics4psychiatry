@@ -13,8 +13,8 @@ sampling:
 
 # Data settings
 data:
-  illness: ["SCZ", "ADHD", "BIP", "OCD", "MDD", "AZ"]
-  p_clump: [0.0001, 0.001, 0.01]
+  illness: ["SCZ"] #, "ADHD", "BIP", "OCD", "MDD", "AZ"]
+  p_clump: [0.0001]
   distribution: ["low"]
   target: Z
   test_size: 0.2
@@ -41,7 +41,7 @@ model:
 # Hyperparameter optimization settings
 hpo:
   run: true
-  n_trials: 20
+  n_trials: 30
   outer_cv: 5
   inner_cv: 5
   search_space:

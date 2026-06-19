@@ -114,7 +114,7 @@ class ResidualDNN(nn.Module):
 
 
 class MDNOutputLayer(nn.Module):
-    def __init__(self, hidden_dim, num_components=2):
+    def __init__(self, hidden_dim, mu, sigma,num_components=2):
         """
         Final layer for a Mixture Density Network.
         
@@ -139,14 +139,39 @@ class MDNOutputLayer(nn.Module):
                 # Indices 4, 5 are sigma (standard deviations)
 
                 # Set initial mu_1 to -5, and mu_2 to +5
-                self.output_layer.bias[2] = -5.0
-                self.output_layer.bias[3] = 5.0
+                if mu is not None:
+                    self.output_layer.bias[2] = mu[0]
+                    self.output_layer.bias[3] = mu[1]
+                else:
+                    self.output_layer.bias[2] = 0.0
+                    self.output_layer.bias[3] = 4.0
 
 
                 # (Optional but helpful) Set initial sigmas to be a bit wide
                 # Note: Because of the softplus activation, a bias of 0 = ~0.7 sigma
-                self.output_layer.bias[4] = 0.5 
-                self.output_layer.bias[5] = 0.5
+                if sigma is not None:
+                    self.output_layer.bias[4] = sigma[0]
+                    self.output_layer.bias[5] = sigma[1]
+                else:
+                    self.output_layer.bias[4] = 0.5
+                    self.output_layer.bias[5] = 0.5
+                
+            if num_components == 3:
+                # In our 9-output linear layer:
+                # Indices 0, 1, 2 are pi (mixing weights)
+                # Indices 3, 4, 5 are mu (means)
+                # Indices 6, 7, 8 are sigma (standard deviations)
+
+                # Set initial mu_1 to -5, mu_2 to 0, and mu_3 to +5
+                self.output_layer.bias[3] = -5.0
+                self.output_layer.bias[4] = 0.0
+                self.output_layer.bias[5] = 5.0
+
+                # (Optional but helpful) Set initial sigmas to be a bit wide
+                # Note: Because of the softplus activation, a bias of 0 = ~0.7 sigma
+                self.output_layer.bias[6] = 0.5 
+                self.output_layer.bias[7] = 0.5
+                self.output_layer.bias[8] = 0.5
 
             if num_components == 4:
                 # ---------------------------------------------------------
@@ -197,7 +222,7 @@ class MDNOutputLayer(nn.Module):
         return pi, mu, sigma
     
 class MDN(nn.Module):
-    def __init__(self, input_dim, hidden_dims, output_dim=1, dropout=None, activation_function=nn.ReLU(), random_state=42, number_of_components=2):
+    def __init__(self, input_dim, hidden_dims, output_dim=1, dropout=None, activation_function=nn.ReLU(), random_state=42, mu = None, sigma = None, number_of_components=2):
         super().__init__()
 
         # set random seed for reproducibility
@@ -211,6 +236,8 @@ class MDN(nn.Module):
 
         blocks = []
         prev_dim = input_dim
+        self.mu = mu
+        self.sigma = sigma
 
         # Group hidden dims in pairs for residual blocks
         for i in range(0, len(hidden_dims), 2):
@@ -228,7 +255,7 @@ class MDN(nn.Module):
                 ))
             prev_dim = block_dim
 
-        blocks.append(MDNOutputLayer(prev_dim, num_components=number_of_components))
+        blocks.append(MDNOutputLayer(prev_dim, mu=self.mu, sigma=self.sigma, num_components=number_of_components))
 
         self.blocks = nn.ModuleList(blocks)
         #self.output_layer = nn.Linear(prev_dim, output_dim)
