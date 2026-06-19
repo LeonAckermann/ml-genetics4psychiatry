@@ -4,6 +4,9 @@ results/
 results_old/
 results_old2/
 results_old3/
+results_hpo/
+best_params/
+best_params_old/
 scripts/
 presentation/
 report/

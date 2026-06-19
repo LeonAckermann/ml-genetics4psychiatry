@@ -26,6 +26,7 @@ NEEDS_VAL_SPLIT: frozenset[str] = frozenset({
 _INT_PARAMS: frozenset[str] = frozenset({
     "n_estimators", "max_depth", "min_child_weight",
     "epochs", "patience", "batch_size", "n_layers", "hidden_dim",
+    "early_stopping_rounds",
 })
 _LOG_PARAMS: frozenset[str] = frozenset({
     "learning_rate", "C", "alpha", "reg_alpha", "reg_lambda",
@@ -213,6 +214,7 @@ def build_model(model_name: str, params: dict, cfg: dict):
             "output_dim": int(params.get("output_dim", 1)),
             "dropout": params.get("dropout"),
             "lr": float(params.get("learning_rate", params.get("lr", 1e-3))),
+            "weight_decay": float(params.get("weight_decay", 0.0)),
             "epochs": int(params.get("epochs", 100)),
             "batch_size": int(params.get("batch_size", 32)),
             "patience": int(params.get("patience", 20)),

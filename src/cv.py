@@ -133,7 +133,7 @@ def nested_cv(
         # ── Train best model on full outer train (val split only when needed) ──
         if _needs_val_split(model_name, best_params):
             X_train_final, X_val_final, y_train_final, y_val_final = train_test_split(
-                X_train_outer, y_train_outer, test_size=val_size, random_state=42
+                X_train_outer, y_train_outer, test_size=val_size, random_state=42 + fold
             )
         else:
             X_train_final, y_train_final = X_train_outer, y_train_outer
@@ -205,7 +205,7 @@ def _run_hpo(
             # Val split only for models that use it (DNN early stopping, XGBoost ES).
             if _needs_val_split(model_name, params):
                 X_inner_train, X_inner_val, y_inner_train, y_inner_val = train_test_split(
-                    X_inner_train, y_inner_train, test_size=val_size, random_state=42
+                    X_inner_train, y_inner_train, test_size=val_size, random_state=42 + inner_fold
                 )
             else:
                 X_inner_val, y_inner_val = X_inner_train, y_inner_train
