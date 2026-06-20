@@ -10,13 +10,29 @@ from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from .evaluation import (
+    aggregate_confidence_metrics,
     aggregate_metrics,
+    classification_metrics,
     compute_metrics,
     label_distribution,
+    mdn_confidence_metrics,
     report_fold_metrics,
 )
 from .hpo import NEEDS_SCALING, NEEDS_VAL_SPLIT, build_model, get_default_search_space, suggest_params
-from .training import train
+from .training import train, train_mdn
+
+
+def _add_noise(X: np.ndarray, sigma: float, rng: np.random.Generator) -> np.ndarray:
+    """Add i.i.d. Gaussian noise N(0, sigma²) to X. No-op when sigma <= 0."""
+    if sigma <= 0:
+        return X
+    return (X + rng.normal(0, sigma, X.shape)).astype(X.dtype)
+
+
+def _noise_sigma(cfg: dict) -> float:
+    """Return the noise sigma from cfg['noise']['sigma'], defaulting to 0."""
+    n = cfg.get("noise", {}) or {}
+    return float(n.get("sigma", 0.0) or 0.0)
 
 
 def _pinned_params(cfg: dict) -> dict:
@@ -73,6 +89,8 @@ def nested_cv(
     fold_metrics: list[dict] = []
     fold_best_params: list[dict] = []
     fold_label_distributions: list[dict] = []
+    fold_confidence_metrics: list[list[dict]] = []  # populated only for MDN
+    fold_init_params: list[dict] = []               # populated only for MDN
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -89,10 +107,11 @@ def nested_cv(
         y_train_outer = y_arr[train_idx]
         y_test_outer = y_arr[test_idx]
 
+        is_binary_labels = is_classification and model_name != "mdn"
         fold_label_distributions.append({
             "fold": fold + 1,
-            "train": label_distribution(y_train_outer, is_binary=is_classification),
-            "test": label_distribution(y_test_outer, is_binary=is_classification),
+            "train": label_distribution(y_train_outer, is_binary=is_binary_labels),
+            "test": label_distribution(y_test_outer, is_binary=is_binary_labels),
         })
 
         # ── Select hyperparameters ────────────────────────────────────────────
@@ -145,27 +164,70 @@ def nested_cv(
             X_val_final = scaler.transform(X_val_final)
             X_test_outer = scaler.transform(X_test_outer)
 
-        model = build_model(model_name, best_params, cfg)
-        preds = train(
-            model,
-            X_train_final, y_train_final,
-            X_val_final, y_val_final,
-            X_test_outer, y_test_outer,
-            cfg,
-        )
+        sigma = _noise_sigma(cfg)
+        if sigma > 0:
+            rng = np.random.default_rng(42 + fold)
+            X_train_final = _add_noise(X_train_final, sigma, rng)
+            X_val_final   = _add_noise(X_val_final,   sigma, rng)
+            X_test_outer  = _add_noise(X_test_outer,  sigma, rng)
 
-        metrics = compute_metrics(y_test_outer, preds, task_type)
+        model = build_model(model_name, best_params, cfg)
+        if model_name == "mdn":
+            preds, fold_pi, fold_mu, init_mu, init_sigma = train_mdn(
+                model,
+                X_train_final, y_train_final,
+                X_val_final, y_val_final,
+                X_test_outer,
+                cfg,
+                y_test=y_test_outer,
+            )
+            fold_init_params.append({
+                "init_mu": init_mu,
+                "init_sigma": init_sigma,
+            })
+            conf_metrics = mdn_confidence_metrics(fold_pi, fold_mu, y_test_outer)
+            fold_confidence_metrics.append(conf_metrics)
+            report_t = cfg.get("evaluation", {}).get("confidence_threshold", 0.5)
+            print(
+                f"  [{experiment_name}] Fold {fold + 1} MDN confidence @ {report_t}:"
+                f" bal_acc={next((r['balanced_accuracy'] for r in conf_metrics if r['threshold'] == report_t), None)}"
+                f"  n_conf={next((r['n_confident'] for r in conf_metrics if r['threshold'] == report_t), 0)}"
+                f"/{len(y_test_outer)}"
+            )
+        else:
+            preds = train(
+                model,
+                X_train_final, y_train_final,
+                X_val_final, y_val_final,
+                X_test_outer, y_test_outer,
+                cfg,
+            )
+
+        if model_name == "mdn" and task_type == "binary_classification":
+            metrics = classification_metrics(
+                (np.asarray(y_test_outer) >= 1.0).astype(int),
+                preds,
+                threshold=1.0,
+            )
+        else:
+            metrics = compute_metrics(y_test_outer, preds, task_type)
         report_fold_metrics(metrics, fold + 1, outer_cv, experiment_name, task_type)
         fold_metrics.append(metrics)
         gc.collect()
 
     aggregated = aggregate_metrics(fold_metrics, task_type, experiment_name)
-    return {
+    result = {
         "fold_metrics": fold_metrics,
         "fold_best_params": fold_best_params,
         "fold_label_distributions": fold_label_distributions,
         **aggregated,
     }
+    if fold_confidence_metrics:
+        result["fold_confidence_metrics"] = fold_confidence_metrics
+        result["confidence_threshold_evaluation"] = aggregate_confidence_metrics(fold_confidence_metrics)
+    if fold_init_params:
+        result["fold_init_params"] = fold_init_params
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +250,7 @@ def _run_hpo(
 ) -> dict:
     """Run Optuna on the outer training fold and return the best params dict."""
     inner_kfold = KFold(n_splits=inner_cv, shuffle=True, random_state=42)
-    primary_metric = "roc_auc" if task_type == "binary_classification" else "r2"
+    primary_metric = "balanced_accuracy" if task_type == "binary_classification" else "r2"
 
     def objective(trial: optuna.Trial) -> float:
         params = suggest_params(trial, search_space, model_name)
@@ -216,6 +278,13 @@ def _run_hpo(
                 X_inner_val = scaler.transform(X_inner_val)
                 X_inner_test = scaler.transform(X_inner_test)
 
+            sigma = _noise_sigma(cfg)
+            if sigma > 0:
+                rng = np.random.default_rng(fold * 10000 + trial.number * 100 + inner_fold)
+                X_inner_train = _add_noise(X_inner_train, sigma, rng)
+                X_inner_val   = _add_noise(X_inner_val,   sigma, rng)
+                X_inner_test  = _add_noise(X_inner_test,  sigma, rng)
+
             model = build_model(model_name, params, cfg)
             preds = train(
                 model,
@@ -224,7 +293,14 @@ def _run_hpo(
                 X_inner_test, y_inner_test,
                 cfg,
             )
-            score = compute_metrics(y_inner_test, preds, task_type)[primary_metric]
+            if model_name == "mdn" and task_type == "binary_classification":
+                score = classification_metrics(
+                    (np.asarray(y_inner_test) >= 1.0).astype(int),
+                    preds,
+                    threshold=1.0,
+                )[primary_metric]
+            else:
+                score = compute_metrics(y_inner_test, preds, task_type)[primary_metric]
             inner_scores.append(score)
             print(
                 f"    [{experiment_name}] trial {trial.number + 1}"

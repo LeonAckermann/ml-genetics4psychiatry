@@ -13,6 +13,7 @@ NEEDS_SCALING: frozenset[str] = frozenset({
     "elastic_logistic_regression",
     "dnn",
     "residual_dnn",
+    "mdn",
 })
 
 # Models that require a held-out validation split (for early stopping).
@@ -21,12 +22,13 @@ NEEDS_SCALING: frozenset[str] = frozenset({
 NEEDS_VAL_SPLIT: frozenset[str] = frozenset({
     "dnn",
     "residual_dnn",
+    "mdn",
 })
 
 _INT_PARAMS: frozenset[str] = frozenset({
     "n_estimators", "max_depth", "min_child_weight",
     "epochs", "patience", "batch_size", "n_layers", "hidden_dim",
-    "early_stopping_rounds",
+    "early_stopping_rounds", "number_of_components",
 })
 _LOG_PARAMS: frozenset[str] = frozenset({
     "learning_rate", "C", "alpha", "reg_alpha", "reg_lambda",
@@ -104,6 +106,19 @@ _DEFAULT_SPACES: dict[tuple[str, str], dict] = {
 # residual_dnn shares DNN spaces
 _DEFAULT_SPACES[("residual_dnn", "regression")] = _DEFAULT_SPACES[("dnn", "regression")]
 _DEFAULT_SPACES[("residual_dnn", "binary_classification")] = _DEFAULT_SPACES[("dnn", "binary_classification")]
+
+_DEFAULT_SPACES[("mdn", "regression")] = {
+    "hidden_dim": [32, 128],
+    "n_layers": [1, 4],
+    "dropout": [0.1, 0.8],
+    "learning_rate": [1e-6, 1e-3],
+    "weight_decay": [0.0, 1e-4],
+    "batch_size": [16, 64],
+    "epochs": [100, 500],
+    "patience": [10, 30],
+    "number_of_components": [2, 4],
+}
+_DEFAULT_SPACES[("mdn", "binary_classification")] = _DEFAULT_SPACES[("mdn", "regression")]
 
 
 def get_default_search_space(model_name: str, task_type: str) -> dict:
@@ -194,6 +209,29 @@ def build_model(model_name: str, params: dict, cfg: dict):
             subsample=float(params.get("subsample", 0.8)),
             colsample_bytree=float(params.get("colsample_bytree", 0.8)),
         )
+
+    # ── MDN ─────────────────────────────────────────────────────────────────
+    if model_name == "mdn":
+        from model import MDN
+        if "hidden_dims" in params:
+            hidden_dims = list(params["hidden_dims"])
+        else:
+            hidden_dim = int(params.get("hidden_dim", 64))
+            n_layers = int(params.get("n_layers", 2))
+            hidden_dims = [hidden_dim] * n_layers
+
+        return {
+            "class": MDN,
+            "hidden_dims": hidden_dims,
+            "number_of_components": int(params.get("number_of_components", 2)),
+            "dropout": params.get("dropout", 0.3),
+            "lr": float(params.get("learning_rate", params.get("lr", 1e-4))),
+            "weight_decay": float(params.get("weight_decay", 0.0)),
+            "epochs": int(params.get("epochs", 200)),
+            "batch_size": int(params.get("batch_size", 32)),
+            "patience": int(params.get("patience", 20)),
+            "seed": seed,
+        }
 
     # ── DNN / ResidualDNN ────────────────────────────────────────────────────
     if model_name in ("dnn", "residual_dnn"):

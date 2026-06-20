@@ -31,8 +31,17 @@ def regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     }
 
 
-def classification_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
-    """Accuracy, precision, recall, F1, balanced accuracy, AUC-ROC, Pearson r², confusion matrix."""
+def classification_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    threshold: float | None = None,
+) -> dict:
+    """Accuracy, precision, recall, F1, balanced accuracy, AUC-ROC, Pearson r², confusion matrix.
+
+    threshold: decision boundary applied to y_pred to produce binary predictions.
+    If None, defaults to 0.5 when predictions are in [0, 1], else 0.0.
+    Pass threshold=1.0 for MDN outputs (expected Z-score in sign-flipped space).
+    """
     from sklearn.metrics import (
         accuracy_score,
         balanced_accuracy_score,
@@ -45,7 +54,8 @@ def classification_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
 
     y_true_bin = np.asarray(y_true, dtype=int).ravel()
     preds = np.asarray(y_pred, dtype=float).ravel()
-    threshold = 0.5 if np.all((preds >= 0.0) & (preds <= 1.0)) else 0.0
+    if threshold is None:
+        threshold = 0.5 if np.all((preds >= 0.0) & (preds <= 1.0)) else 0.0
     y_pred_bin = (preds >= threshold).astype(int)
 
     pearson_r2, pearson_p = 0.0, 1.0
@@ -140,6 +150,76 @@ def report_fold_metrics(
         print(f"    Pearson r:    {metrics['pearson_r']:.4f}")
         print(f"    Pearson r²:   {metrics['pearson_r2']:.4f}  (p={metrics['pearson_p']:.4e})")
         print(f"    Spearman ρ²:  {metrics['spearman_rho2']:.4f}  (p={metrics['spearman_p']:.4e})")
+
+
+MDN_CONFIDENCE_THRESHOLDS: list[float] = [round(t, 2) for t in np.arange(0.0, 0.95, 0.05)]
+
+
+def mdn_confidence_metrics(
+    pi: np.ndarray,
+    mu: np.ndarray,
+    y_true: np.ndarray,
+    thresholds: list[float] = MDN_CONFIDENCE_THRESHOLDS,
+) -> list[dict]:
+    """Per-threshold balanced accuracy for one MDN fold.
+
+    Confidence = margin between the top-1 and top-2 mixing weights.
+    A sample is predicted positive when its winning component's mu >= 0.
+    """
+    from sklearn.metrics import balanced_accuracy_score
+
+    # Z >= 1 threshold in sign-flipped space: positive class = high |Z| cluster
+    y_true_bin = (np.asarray(y_true) >= 1).astype(int)
+    best_component = np.argmax(pi, axis=1)
+    best_mu = mu[np.arange(len(mu)), best_component]
+    y_pred = (best_mu >= 1).astype(int)
+
+    sorted_pi = np.sort(pi, axis=1)[:, ::-1]
+    margins = sorted_pi[:, 0] - sorted_pi[:, 1]
+
+    results = []
+    for t in thresholds:
+        confident = margins >= t
+        n_confident = int(confident.sum())
+        n_total = len(y_true)
+
+        if n_confident == 0 or len(np.unique(y_true_bin[confident])) < 2:
+            bal_acc = None
+        else:
+            bal_acc = float(balanced_accuracy_score(y_true_bin[confident], y_pred[confident]))
+
+        results.append({
+            "threshold": t,
+            "n_confident": n_confident,
+            "n_total": n_total,
+            "coverage": float(n_confident / n_total),
+            "balanced_accuracy": bal_acc,
+        })
+    return results
+
+
+def aggregate_confidence_metrics(fold_conf: list[list[dict]]) -> list[dict]:
+    """Average per-threshold results across folds."""
+    if not fold_conf:
+        return []
+    thresholds = [r["threshold"] for r in fold_conf[0]]
+    aggregated = []
+    for t_idx, t in enumerate(thresholds):
+        bal_accs = [
+            f[t_idx]["balanced_accuracy"] for f in fold_conf
+            if f[t_idx]["balanced_accuracy"] is not None
+        ]
+        n_confs = [f[t_idx]["n_confident"] for f in fold_conf]
+        coverages = [f[t_idx]["coverage"] for f in fold_conf]
+        aggregated.append({
+            "threshold": t,
+            "mean_balanced_accuracy": float(np.mean(bal_accs)) if bal_accs else None,
+            "std_balanced_accuracy": float(np.std(bal_accs)) if len(bal_accs) > 1 else 0.0,
+            "n_folds_with_confident_samples": len(bal_accs),
+            "mean_n_confident": float(np.mean(n_confs)),
+            "mean_coverage": float(np.mean(coverages)),
+        })
+    return aggregated
 
 
 def aggregate_metrics(fold_metrics: list[dict], task_type: str, experiment_name: str) -> dict:

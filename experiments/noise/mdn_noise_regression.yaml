@@ -1,0 +1,45 @@
+construct_gwas_mri:
+  run: false
+
+plink2:
+  prepare: false
+
+sampling:
+  run: false
+
+data:
+  illness: ["SCZ", "BIP", "MDD", "OCD", "AZ", "ADHD"]
+  p_clump: [0.0001]
+  distribution: ["low_high"]
+  target: Z
+  test_size: 0.2
+  n_splits: 5
+  save_splits: true
+  polars: true
+  chunk_size: 10000
+  row_ratio: [1]
+  col_ratio: [1]
+  top_rows: true
+  top_cols: true
+  mri_p_value: 0.0001
+
+experiment:
+  run: false
+
+model:
+  name: mdn
+  type: ["regression"]
+  p_value_binary: 0.0001
+
+hpo:
+  run: false
+  outer_cv: 3
+
+load_best_params: true
+
+noise:
+  sigma: [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0]
+
+evaluation:
+  metrics: [r2, pearson_r2]
+  binary_threshold: null

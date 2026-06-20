@@ -216,26 +216,49 @@ def main() -> None:
         "types", [cfg["model"].get("type", "regression")]
     )
 
-    for dist, p, illness, row_ratio, col_ratio, task_type in product(
+    # Noise levels: cfg["noise"]["sigma"] may be a scalar or a list.
+    _noise_cfg = cfg.get("noise", {}) or {}
+    _raw_sigma = _noise_cfg.get("sigma", [0.0])
+    noise_levels: list[float] = (
+        [float(_raw_sigma)] if not isinstance(_raw_sigma, list) else [float(s) for s in _raw_sigma]
+    )
+
+    # Random row fractions: data.rand may be a scalar or a list.
+    _raw_rand = data_cfg.get("rand", [1.0])
+    rand_fracs: list[float] = (
+        [float(_raw_rand)] if not isinstance(_raw_rand, list) else [float(r) for r in _raw_rand]
+    )
+
+    for dist, p, illness, row_ratio, col_ratio, task_type, noise_sigma, rand_frac in product(
         data_cfg.get("distribution", []),
         data_cfg.get("p_clump", []),
         data_cfg.get("illness", []),
         data_cfg.get("row_ratio", [1.0]),
         data_cfg.get("col_ratio", [1.0]),
-        cfg["model"].get("type", ["regression"])
+        cfg["model"].get("type", ["regression"]),
+        noise_levels,
+        rand_fracs,
     ):
         model_family = cfg["model"]["name"]
         model_name = resolve_model_name(model_family, task_type)
 
-        # Per-iteration cfg copy: override model.type so all downstream calls
-        # (nested_cv, build_model, _train_dnn) see the correct task type.
-        iter_cfg = {**cfg, "model": {**cfg["model"], "type": task_type}}
+        # Per-iteration cfg copy: override model.type and noise.sigma so all
+        # downstream calls see the correct task type and noise level.
+        iter_cfg = {
+            **cfg,
+            "model": {**cfg["model"], "type": task_type},
+            "noise": {**(_noise_cfg), "sigma": noise_sigma},
+        }
 
+        noise_suffix = f"_noise{noise_sigma:g}" if noise_sigma > 0 else ""
+        rand_suffix  = f"_rand{rand_frac:g}"   if rand_frac  < 1.0 else ""
         print(
             f"\nStarting experiment: illness={illness}, p_clump={p},"
             f" distribution={dist}, task_type={task_type}, model={model_name}"
+            + (f", noise_sigma={noise_sigma:g}" if noise_sigma > 0 else "")
+            + (f", rand={rand_frac:g}"          if rand_frac  < 1.0 else "")
         )
-        experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}"
+        experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}"
         results_dir = Path("./results") / experiment_name
         results_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -285,6 +308,16 @@ def main() -> None:
         X = df_pandas.drop(columns=[data_cfg["target"]] + id_cols)
         y = df_pandas[data_cfg["target"]]
 
+        # ── Optional random row subsampling (distinct from row_ratio) ─────────
+        if rand_frac < 1.0:
+            n_total  = len(X)
+            n_sample = max(1, int(n_total * rand_frac))
+            rng      = np.random.default_rng(42)
+            idx      = np.sort(rng.choice(n_total, size=n_sample, replace=False))
+            X = X.iloc[idx].reset_index(drop=True)
+            y = y.iloc[idx].reset_index(drop=True)
+            print(f"  Random subsample: {n_sample:,}/{n_total:,} rows (rand={rand_frac:g})")
+
         # ── Optional sign-flip of negative labels + their features ────────────
         if data_cfg.get("invert", False):
             neg = (y < 0).values
@@ -294,7 +327,7 @@ def main() -> None:
             X.iloc[neg] *= -1
             print(f"  Inverted {neg.sum()} samples with negative labels")
 
-        if task_type == "binary_classification":
+        if task_type == "binary_classification" and model_family != "mdn":
             from scipy.stats import norm
             y = norm.sf(abs(y)) * 2
             y = (y <= iter_cfg["model"]["p_value_binary"]).astype(int)
@@ -351,6 +384,8 @@ def main() -> None:
 
         output.update({
             "experiment": experiment_name,
+            "noise_sigma": noise_sigma,
+            "rand_frac": rand_frac,
             "config": iter_cfg,
             "timestamp": timestamp,
             "hpo": results,
