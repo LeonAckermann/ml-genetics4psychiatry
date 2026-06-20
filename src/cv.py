@@ -22,6 +22,46 @@ from .hpo import NEEDS_SCALING, NEEDS_VAL_SPLIT, build_model, get_default_search
 from .training import train, train_mdn
 
 
+def _apply_pca(
+    X_train: np.ndarray,
+    X_val: np.ndarray,
+    X_test: np.ndarray,
+    setting: float | str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Fit PCA on X_train, transform all splits.
+
+    setting:
+      float (0, 1)  → minimum components explaining that fraction of variance
+      'effective'   → entropy-based effective rank of the training matrix
+    """
+    from sklearn.decomposition import PCA
+
+    if setting == "effective":
+        _, s, _ = np.linalg.svd(X_train, full_matrices=False)
+        s_norm = s / (s.sum() + 1e-12)
+        entropy = -np.sum(s_norm * np.log(s_norm + 1e-12))
+        n_components = max(1, min(int(np.round(np.exp(entropy))),
+                                  X_train.shape[0] - 1, X_train.shape[1]))
+        pca = PCA(n_components=n_components, random_state=42)
+    else:
+        pca = PCA(n_components=float(setting), svd_solver="full", random_state=42)
+
+    X_train_t = pca.fit_transform(X_train)
+    print(f"    PCA ({setting}): {pca.n_components_} components → "
+          f"{pca.explained_variance_ratio_.sum():.1%} variance (d={X_train.shape[1]})")
+    return X_train_t, pca.transform(X_val), pca.transform(X_test)
+
+
+def _pca_setting(cfg: dict) -> float | str | None:
+    """Return cfg['data']['pca']: a variance float, 'effective', or None."""
+    v = cfg.get("data", {}).get("pca")
+    if v is None:
+        return None
+    if str(v).lower() == "effective":
+        return "effective"
+    return float(v)
+
+
 def _add_noise(X: np.ndarray, sigma: float, rng: np.random.Generator) -> np.ndarray:
     """Add i.i.d. Gaussian noise N(0, sigma²) to X. No-op when sigma <= 0."""
     if sigma <= 0:
@@ -158,6 +198,12 @@ def nested_cv(
             X_train_final, y_train_final = X_train_outer, y_train_outer
             X_val_final, y_val_final = X_train_outer, y_train_outer  # unused by sklearn
 
+        pca = _pca_setting(cfg)
+        if pca is not None:
+            X_train_final, X_val_final, X_test_outer = _apply_pca(
+                X_train_final, X_val_final, X_test_outer, pca
+            )
+
         if needs_scaling:
             scaler = StandardScaler()
             X_train_final = scaler.fit_transform(X_train_final)
@@ -271,6 +317,12 @@ def _run_hpo(
                 )
             else:
                 X_inner_val, y_inner_val = X_inner_train, y_inner_train
+
+            n_pca = _pca_components(cfg)
+            if n_pca:
+                X_inner_train, X_inner_val, X_inner_test = _apply_pca(
+                    X_inner_train, X_inner_val, X_inner_test, n_pca
+                )
 
             if needs_scaling:
                 scaler = StandardScaler()
