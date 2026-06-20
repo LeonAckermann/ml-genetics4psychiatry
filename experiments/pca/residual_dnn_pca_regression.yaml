@@ -1,0 +1,52 @@
+construct_gwas_mri:
+  run: false
+
+plink2:
+  prepare: false
+
+sampling:
+  run: false
+
+data:
+  illness: ["SCZ", "ADHD", "BIP", "OCD", "MDD", "AZ"]
+  p_clump: [0.0001]
+  distribution: ["low"]
+  target: Z
+  test_size: 0.2
+  n_splits: 5
+  save_splits: true
+  polars: true
+  chunk_size: 10000
+  row_ratio: [1]
+  col_ratio: [1]
+  top_rows: true
+  top_cols: true
+  mri_p_value: 0.0001
+  pca: [0.9, 0.95, 0.99, "effective", null]
+
+experiment:
+  run: true
+
+model:
+  name: residual_dnn
+  type: ["regression"]
+  p_value_binary: 0.0001
+
+hpo:
+  run: true
+  n_trials: 30
+  outer_cv: 5
+  inner_cv: 5
+  search_space:
+    hidden_dim: [32, 128]
+    n_layers: [1, 8]
+    dropout: [0.1, 0.8]
+    learning_rate: [1e-6, 1e-2]
+    weight_decay: [0.0, 0.0001]
+    batch_size: [16, 64]
+    epochs: [20, 60]
+    patience: [5, 20]
+
+evaluation:
+  metrics: [r2, mse, pearson_r2]
+  binary_threshold: null

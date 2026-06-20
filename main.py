@@ -229,7 +229,20 @@ def main() -> None:
         [float(_raw_rand)] if not isinstance(_raw_rand, list) else [float(r) for r in _raw_rand]
     )
 
-    for dist, p, illness, row_ratio, col_ratio, task_type, noise_sigma, rand_frac in product(
+    # PCA settings: data.pca may be a scalar, list, or null.
+    # Accepted values: float (0,1) for variance threshold, "effective", null.
+    _raw_pca = data_cfg.get("pca", [None])
+    if not isinstance(_raw_pca, list):
+        _raw_pca = [_raw_pca]
+    def _parse_pca(v):
+        if v is None:
+            return None
+        if str(v).lower() == "effective":
+            return "effective"
+        return float(v)
+    pca_values: list[float | str | None] = [_parse_pca(v) for v in _raw_pca]
+
+    for dist, p, illness, row_ratio, col_ratio, task_type, noise_sigma, rand_frac, pca_var in product(
         data_cfg.get("distribution", []),
         data_cfg.get("p_clump", []),
         data_cfg.get("illness", []),
@@ -238,27 +251,36 @@ def main() -> None:
         cfg["model"].get("type", ["regression"]),
         noise_levels,
         rand_fracs,
+        pca_values,
     ):
         model_family = cfg["model"]["name"]
         model_name = resolve_model_name(model_family, task_type)
 
-        # Per-iteration cfg copy: override model.type and noise.sigma so all
-        # downstream calls see the correct task type and noise level.
+        # Per-iteration cfg copy: override model.type, noise.sigma, and
+        # data.pca_components so downstream calls see the correct values.
         iter_cfg = {
             **cfg,
             "model": {**cfg["model"], "type": task_type},
             "noise": {**(_noise_cfg), "sigma": noise_sigma},
+            "data":  {**data_cfg, "pca": pca_var},
         }
 
         noise_suffix = f"_noise{noise_sigma:g}" if noise_sigma > 0 else ""
-        rand_suffix  = f"_rand{rand_frac:g}"   if rand_frac  < 1.0 else ""
+        rand_suffix  = f"_rand{rand_frac:g}"    if rand_frac  < 1.0 else ""
+        if pca_var is None:
+            pca_suffix = ""
+        elif pca_var == "effective":
+            pca_suffix = "_pcaeff"
+        else:
+            pca_suffix = f"_pca{int(float(pca_var) * 100)}"
         print(
             f"\nStarting experiment: illness={illness}, p_clump={p},"
             f" distribution={dist}, task_type={task_type}, model={model_name}"
-            + (f", noise_sigma={noise_sigma:g}" if noise_sigma > 0 else "")
-            + (f", rand={rand_frac:g}"          if rand_frac  < 1.0 else "")
+            + (f", noise_sigma={noise_sigma:g}"          if noise_sigma > 0    else "")
+            + (f", rand={rand_frac:g}"                   if rand_frac  < 1.0   else "")
+            + (f", pca={pca_var}"                        if pca_var is not None else "")
         )
-        experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}"
+        experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}"
         results_dir = Path("./results") / experiment_name
         results_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -386,6 +408,7 @@ def main() -> None:
             "experiment": experiment_name,
             "noise_sigma": noise_sigma,
             "rand_frac": rand_frac,
+            "pca": pca_var,
             "config": iter_cfg,
             "timestamp": timestamp,
             "hpo": results,
