@@ -130,73 +130,17 @@ class MDNOutputLayer(nn.Module):
         self.output_layer = nn.Linear(hidden_dim, num_components * 3)
 
 
+        # Bias layout for K components (output size = 3K):
+        #   indices  0  ..  K-1   → pi   (pre-softmax)
+        #   indices  K  .. 2K-1   → mu   (direct)
+        #   indices 2K  .. 3K-1   → sigma (pre-softplus; softplus(b)+1e-6 = actual sigma)
         with torch.no_grad():
-
-            if num_components == 2:
-                # In our 6-output linear layer:
-                # Indices 0, 1 are pi (mixing weights)
-                # Indices 2, 3 are mu (means)
-                # Indices 4, 5 are sigma (standard deviations)
-
-                # Set initial mu_1 to -5, and mu_2 to +5
-                if mu is not None:
-                    self.output_layer.bias[2] = mu[0]
-                    self.output_layer.bias[3] = mu[1]
-                else:
-                    self.output_layer.bias[2] = 0.0
-                    self.output_layer.bias[3] = 4.0
-
-
-                # (Optional but helpful) Set initial sigmas to be a bit wide
-                # Note: Because of the softplus activation, a bias of 0 = ~0.7 sigma
-                if sigma is not None:
-                    self.output_layer.bias[4] = sigma[0]
-                    self.output_layer.bias[5] = sigma[1]
-                else:
-                    self.output_layer.bias[4] = 0.5
-                    self.output_layer.bias[5] = 0.5
-                
-            if num_components == 3:
-                # In our 9-output linear layer:
-                # Indices 0, 1, 2 are pi (mixing weights)
-                # Indices 3, 4, 5 are mu (means)
-                # Indices 6, 7, 8 are sigma (standard deviations)
-
-                # Set initial mu_1 to -5, mu_2 to 0, and mu_3 to +5
-                self.output_layer.bias[3] = -5.0
-                self.output_layer.bias[4] = 0.0
-                self.output_layer.bias[5] = 5.0
-
-                # (Optional but helpful) Set initial sigmas to be a bit wide
-                # Note: Because of the softplus activation, a bias of 0 = ~0.7 sigma
-                self.output_layer.bias[6] = 0.5 
-                self.output_layer.bias[7] = 0.5
-                self.output_layer.bias[8] = 0.5
-
-            if num_components == 4:
-                # ---------------------------------------------------------
-                # MEANS (mu) - Indices 4, 5, 6, 7
-                # ---------------------------------------------------------
-                # Left Cluster Pair
-                self.output_layer.bias[4] = -4.5  # Component 1: Left Core (Sharp peak)
-                self.output_layer.bias[5] = -7.5  # Component 2: Left Tail (Dragged out to the left)
-
-                # Right Cluster Pair
-                self.output_layer.bias[6] = 4.5   # Component 3: Right Core (Sharp peak)
-                self.output_layer.bias[7] = 7.5  # Component 4: Right Tail (Dragged out to the right)
-
-                # ---------------------------------------------------------
-                # STANDARD DEVIATIONS (sigma) - Indices 8, 9, 10, 11
-                # Note: Bias of 0.0 ≈ 0.7 actual sigma after softplus
-                # Note: Bias of 1.5 ≈ 1.7 actual sigma after softplus
-                # ---------------------------------------------------------
-                # Left Cluster Variances
-                self.output_layer.bias[8] = 0.0   # Narrow (Fits the sharp left peak)
-                self.output_layer.bias[9] = 1.5   # Wide (Spreads out to form the left tail)
-
-                # Right Cluster Variances
-                self.output_layer.bias[10] = 0.0  # Narrow (Fits the sharp right peak)
-                self.output_layer.bias[11] = 1.5  # Wide (Spreads out to form the right tail)
+            if mu is not None:
+                for k, m in enumerate(mu):
+                    self.output_layer.bias[num_components + k] = float(m)
+            if sigma is not None:
+                for k, s in enumerate(sigma):
+                    self.output_layer.bias[2 * num_components + k] = float(s)
 
     def forward(self, x):
         # Pass the hidden state through the final linear layer
