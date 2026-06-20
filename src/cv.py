@@ -318,7 +318,7 @@ def _run_hpo(
             else:
                 X_inner_val, y_inner_val = X_inner_train, y_inner_train
 
-            n_pca = _pca_components(cfg)
+            n_pca = _pca_setting(cfg)
             if n_pca:
                 X_inner_train, X_inner_val, X_inner_test = _apply_pca(
                     X_inner_train, X_inner_val, X_inner_test, n_pca
