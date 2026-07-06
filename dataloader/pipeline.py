@@ -135,8 +135,8 @@ def _gwas_phenotype_illness_name(file: Path) -> str:
     return file.stem[2:] if file.stem.startswith("z_") else file.stem
 
 
-def construct_gwas_phenotype(input_path, output_path, how="inner", verbose=True):
-    """Join per-illness GWAS summary statistic files on (chrom, pos).
+def construct_gwas_phenotype(input_path, output_path, how="inner", join_key="chrom", verbose=True):
+    """Join per-illness GWAS summary statistic files into one Z-score matrix.
 
     Reads every ``z_<ILLNESS>.txt`` file under ``input_path``, harmonizes the
     A0/A1 allele coding against the first illness (alphabetically) found, and
@@ -144,10 +144,22 @@ def construct_gwas_phenotype(input_path, output_path, how="inner", verbose=True)
     illness (e.g. ``ADHD``, ``SCZ``) plus the reference illness's rsID
     (as ``ID``), chrom, pos, A0 and A1.
 
+    ``join_key`` controls how SNPs are matched across files:
+      - "chrom": join on (chrom, pos) [default]
+      - "rs":    join on rsID
+
+    Comparing the row count between the two modes is a useful diagnostic:
+    a large gap (e.g. millions via "rs" vs. a handful via "chrom") points to
+    a genome build mismatch between input files, since rsIDs are build
+    independent while chrom/pos are not.
+
     Alleles reported in swapped order relative to the reference have their
     Z score sign flipped; SNPs whose alleles can't be reconciled in either
     order are dropped from the output.
     """
+    if join_key not in ("chrom", "rs"):
+        raise ValueError(f"join_key must be 'chrom' or 'rs', got {join_key!r}")
+
     input_path = Path(input_path).expanduser().resolve()
     output_path = Path(output_path).expanduser().resolve()
 
@@ -157,9 +169,12 @@ def construct_gwas_phenotype(input_path, output_path, how="inner", verbose=True)
 
     illnesses = [_gwas_phenotype_illness_name(f) for f in files]
     join_how = "inner" if how == "inner" else "full"
+    key_cols = ["chrom", "pos"] if join_key == "chrom" else ["ID"]
+    dedupe_subset = ["chrom", "pos"] if join_key == "chrom" else ["rsID"]
 
     if verbose:
         print(f"Found {len(files)} illness files: {', '.join(illnesses)}")
+        print(f"Joining on: {join_key}")
 
     per_file_frames = {}
     line_counts = {}
@@ -175,14 +190,14 @@ def construct_gwas_phenotype(input_path, output_path, how="inner", verbose=True)
             },
         )
         n_rows = df.height
-        df = df.unique(subset=["chrom", "pos"], keep="first", maintain_order=True)
+        df = df.unique(subset=dedupe_subset, keep="first", maintain_order=True)
         n_dupes = n_rows - df.height
 
         per_file_frames[illness] = df
         line_counts[illness] = n_rows
         dupe_counts[illness] = n_dupes
         if verbose:
-            note = f" ({n_dupes} duplicate chrom/pos rows dropped)" if n_dupes else ""
+            note = f" ({n_dupes} duplicate {join_key} rows dropped)" if n_dupes else ""
             print(f"  {illness}: {n_rows} lines{note}")
 
     reference = illnesses[0]
@@ -190,13 +205,14 @@ def construct_gwas_phenotype(input_path, output_path, how="inner", verbose=True)
 
     renamed_frames = [ref_df]
     for illness in illnesses[1:]:
-        df = per_file_frames[illness].drop("rsID").rename(
-            {"A0": f"A0_{illness}", "A1": f"A1_{illness}", "Z": illness}
+        df = per_file_frames[illness].rename(
+            {"rsID": "ID", "A0": f"A0_{illness}", "A1": f"A1_{illness}", "Z": illness}
         )
+        df = df.drop("ID") if join_key == "chrom" else df.drop(["chrom", "pos"])
         renamed_frames.append(df)
 
     merged = functools.reduce(
-        lambda left, right: left.join(right, on=["chrom", "pos"], how=join_how, coalesce=True),
+        lambda left, right: left.join(right, on=key_cols, how=join_how, coalesce=True),
         renamed_frames,
     )
 
@@ -240,6 +256,7 @@ def construct_gwas_phenotype(input_path, output_path, how="inner", verbose=True)
         "n_files": len(files),
         "illnesses": illnesses,
         "reference_illness": reference,
+        "join_key": join_key,
         "line_counts": line_counts,
         "duplicate_counts": dupe_counts,
         "swap_counts": swap_counts,

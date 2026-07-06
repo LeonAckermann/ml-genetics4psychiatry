@@ -185,6 +185,7 @@ def main() -> None:
             input_path=gwas_phenotype_cfg["input_path"],
             output_path=gwas_phenotype_cfg["output_path"],
             how=gwas_phenotype_cfg.get("how", "inner"),
+            join_key=gwas_phenotype_cfg.get("join_key", "chrom"),
         )
         output["gwas_phenotype_stats"] = stats
         save_construction_stats("gwas_phenotype_construction", stats)
