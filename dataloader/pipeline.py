@@ -1,5 +1,6 @@
 import numpy as np
 from pathlib import Path
+import functools
 import gc
 import shlex
 import shutil
@@ -130,6 +131,125 @@ def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, p
     print(f"Saved merged data to {output_path}")
     return stats
 
+def _gwas_phenotype_illness_name(file: Path) -> str:
+    return file.stem[2:] if file.stem.startswith("z_") else file.stem
+
+
+def construct_gwas_phenotype(input_path, output_path, how="inner", verbose=True):
+    """Join per-illness GWAS summary statistic files on (chrom, pos).
+
+    Reads every ``z_<ILLNESS>.txt`` file under ``input_path``, harmonizes the
+    A0/A1 allele coding against the first illness (alphabetically) found, and
+    writes a single wide matrix with one Z-score column named after each
+    illness (e.g. ``ADHD``, ``SCZ``) plus the reference illness's rsID
+    (as ``ID``), chrom, pos, A0 and A1.
+
+    Alleles reported in swapped order relative to the reference have their
+    Z score sign flipped; SNPs whose alleles can't be reconciled in either
+    order are dropped from the output.
+    """
+    input_path = Path(input_path).expanduser().resolve()
+    output_path = Path(output_path).expanduser().resolve()
+
+    files = sorted(input_path.glob("z_*.txt"))
+    if not files:
+        raise FileNotFoundError(f"No z_*.txt files found in {input_path}")
+
+    illnesses = [_gwas_phenotype_illness_name(f) for f in files]
+    join_how = "inner" if how == "inner" else "full"
+
+    if verbose:
+        print(f"Found {len(files)} illness files: {', '.join(illnesses)}")
+
+    per_file_frames = {}
+    line_counts = {}
+    dupe_counts = {}
+    for file, illness in zip(files, illnesses):
+        df = pl.read_csv(
+            file,
+            separator="\t",
+            columns=["chrom", "rsID", "pos", "A0", "A1", "Z"],
+            schema_overrides={
+                "chrom": pl.Int8, "pos": pl.Int32,
+                "rsID": pl.Utf8, "A0": pl.Utf8, "A1": pl.Utf8, "Z": pl.Float64,
+            },
+        )
+        n_rows = df.height
+        df = df.unique(subset=["chrom", "pos"], keep="first", maintain_order=True)
+        n_dupes = n_rows - df.height
+
+        per_file_frames[illness] = df
+        line_counts[illness] = n_rows
+        dupe_counts[illness] = n_dupes
+        if verbose:
+            note = f" ({n_dupes} duplicate chrom/pos rows dropped)" if n_dupes else ""
+            print(f"  {illness}: {n_rows} lines{note}")
+
+    reference = illnesses[0]
+    ref_df = per_file_frames[reference].rename({"rsID": "ID", "Z": reference})
+
+    renamed_frames = [ref_df]
+    for illness in illnesses[1:]:
+        df = per_file_frames[illness].drop("rsID").rename(
+            {"A0": f"A0_{illness}", "A1": f"A1_{illness}", "Z": illness}
+        )
+        renamed_frames.append(df)
+
+    merged = functools.reduce(
+        lambda left, right: left.join(right, on=["chrom", "pos"], how=join_how, coalesce=True),
+        renamed_frames,
+    )
+
+    swap_counts = {}
+    mismatch_counts = {}
+    drop_mask = pl.Series([False] * merged.height)
+
+    for illness in illnesses[1:]:
+        a0_col, a1_col, z_col = f"A0_{illness}", f"A1_{illness}", illness
+
+        is_match = (pl.col(a0_col) == pl.col("A0")) & (pl.col(a1_col) == pl.col("A1"))
+        is_swap = (pl.col(a0_col) == pl.col("A1")) & (pl.col(a1_col) == pl.col("A0"))
+        is_present = pl.col(z_col).is_not_null()
+
+        flags = merged.select(
+            swap=(is_present & is_swap),
+            mismatch=(is_present & ~is_match & ~is_swap),
+        )
+
+        swap_counts[illness] = int(flags["swap"].sum())
+        mismatch_counts[illness] = int(flags["mismatch"].sum())
+
+        merged = merged.with_columns(
+            pl.when(flags["swap"]).then(-pl.col(z_col)).otherwise(pl.col(z_col)).alias(z_col)
+        ).drop([a0_col, a1_col])
+
+        drop_mask = drop_mask | flags["mismatch"]
+
+    n_mismatched_rows = int(drop_mask.sum())
+    merged = merged.filter(~drop_mask)
+
+    final_cols = ["ID", "chrom", "pos", "A0", "A1"] + illnesses
+    merged = merged.select(final_cols)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    merged.write_csv(str(output_path), separator="\t")
+    if verbose:
+        print(f"Saved joined GWAS phenotype matrix to {output_path}")
+
+    stats = {
+        "n_files": len(files),
+        "illnesses": illnesses,
+        "reference_illness": reference,
+        "line_counts": line_counts,
+        "duplicate_counts": dupe_counts,
+        "swap_counts": swap_counts,
+        "mismatch_counts": mismatch_counts,
+        "n_rows_dropped_mismatch": n_mismatched_rows,
+        "n_rows_joined": merged.height,
+    }
+    return stats
+
+
 def merge_gwas_illness_mri(df_illness, df_mri):
     # Step 1: direct match on [ID, A0, A1]
     direct = df_illness.merge(df_mri, on=["ID", "A0", "A1"], how="inner")
@@ -156,7 +276,7 @@ def merge_gwas_illness_mri(df_illness, df_mri):
 
 
 
-def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None, mri_path=None, polars=False):
+def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None, mri_path=None, polars=False, output_suffix=""):
     
     if verbose:
         print(f"Loading GWAS data for MRI")
@@ -166,6 +286,9 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
         df_mri = load_txt_polars(Path(mri_path), chunk_size=chunk_size, total_chunks=total_chunks)
     else:
         df_mri = load_txt(Path(mri_path), chunk_size=chunk_size, total_chunks=total_chunks)
+    # drop columns only needed for standalone use (e.g. gwas_pheno's all_z_scores.txt),
+    # not for the ID/A0/A1 merge below — avoids _x/_y suffix collisions with df_illness
+    df_mri = df_mri.drop(columns=[c for c in ["chrom", "pos"] if c in df_mri.columns])
     # get number of rows
     n_rows_mri = df_mri.shape[0]
     # drop rows with missing values
@@ -230,7 +353,7 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
     if verbose:
         print(f"Number of rows in aligned data: {n_rows_aligned}")
     # save it as txt file
-    output_path_illness= Path(f"./data/pipeline/intermediate/aligned_{illness}.txt").expanduser().resolve()
+    output_path_illness= Path(f"./data/pipeline/intermediate/aligned_{illness}{output_suffix}.txt").expanduser().resolve()
     aligned.to_csv(output_path_illness, sep="\t", index=False)
     if verbose:
         print(f"Saved aligned data for illness {illness} at {output_path_illness}")
@@ -277,13 +400,13 @@ def call_plink2(cfg: dict[str, str]) -> None:
     print(f"plink2 output: {result.stdout}")
 
 
-def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None, polars=False, mri_path=None):
+def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=None, polars=False, mri_path=None, output_suffix=""):
     if verbose:
         print(f"Loading clumped data for illness {illness}")
     if polars:
-        df_clumped = load_txt_polars(Path(f"./data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size, total_chunks=total_chunks)
+        df_clumped = load_txt_polars(Path(f"./data/pipeline/output/clumped_{illness}{output_suffix}.clumps"), chunk_size=chunk_size, total_chunks=total_chunks)
     else:
-        df_clumped = load_txt(Path(f"./data/pipeline/output/clumped_{illness}.clumps"), chunk_size=chunk_size)
+        df_clumped = load_txt(Path(f"./data/pipeline/output/clumped_{illness}{output_suffix}.clumps"), chunk_size=chunk_size)
     df_clumped.rename(columns={"ID": "ID"}, inplace=True)
     n_rows_clumped = df_clumped.shape[0]
      # drop rows with missing values
@@ -301,6 +424,9 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
         df_mri = load_txt_polars(Path(mri_path), chunk_size=chunk_size, total_chunks=total_chunks)
     else:
         df_mri = load_txt(Path(mri_path), chunk_size=chunk_size, total_chunks=total_chunks)
+    # drop columns only needed for standalone use (e.g. gwas_pheno's all_z_scores.txt),
+    # not for the ID/A0/A1 merge below — avoids _x/_y suffix collisions with df_illness
+    df_mri = df_mri.drop(columns=[c for c in ["chrom", "pos"] if c in df_mri.columns])
     n_rows_mri = df_mri.shape[0]
     
     if verbose:
@@ -336,7 +462,7 @@ def aligne_clumped_illness_mri(illness, verbose=True, chunk_size=10000, total_ch
     # remove columns chrom	pos	A0	A1	N
     #CHROM	POS	P	TOTAL	NONSIG	S0.05	S0.01	S0.001	S0.0001	SP2	chrom	pos	A0	A1	N
     aligned = aligned.drop(columns=["#CHROM","POS","TOTAL","NONSIG","S0.05","S0.01","S0.001","S0.0001","SP2","chrom","pos","A0","A1","N"])
-    output_path = Path(f"./data/pipeline/final/aligned_clumped_{illness}.txt").expanduser().resolve()
+    output_path = Path(f"./data/pipeline/final/aligned_clumped_{illness}{output_suffix}.txt").expanduser().resolve()
     aligned.to_csv(output_path, sep="\t", index=False)
     if verbose:
         print(f"Saved aligned clumped data for illness {illness} at {output_path}")

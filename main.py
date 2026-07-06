@@ -21,6 +21,7 @@ from dataloader.pipeline import (
     aligne_illness_mri,
     call_plink2,
     construct_gwas_mri,
+    construct_gwas_phenotype,
 )
 from dataloader.preprocess import sample
 from src import get_default_search_space, nested_cv
@@ -63,6 +64,18 @@ _MODEL_NAME_MAP: dict[tuple[str, str], str] = {
     ("ridge",  "regression"):            "ridge_regression",
     ("ridge",  "binary_classification"): "ridge_logistic_regression",
 }
+
+
+def save_construction_stats(name: str, stats: dict) -> Path:
+    """Save a one-time pipeline construction step's stats to results/<name>/."""
+    results_dir = Path("./results") / name
+    results_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_file = results_dir / f"{name}_{timestamp}.json"
+    with open(results_file, "w") as fh:
+        json.dump(stats, fh, indent=2, cls=NumpyEncoder)
+    print(f"Saved construction stats to {results_file}")
+    return results_file
 
 
 def resolve_model_name(family: str, task_type: str) -> str:
@@ -144,6 +157,7 @@ def main() -> None:
 
     plink_cfg = cfg["plink2"]
     construct_cfg = cfg.get("construct_gwas_mri", {})
+    gwas_phenotype_cfg = cfg.get("gwas_phenotype_construction", {})
     data_cfg = cfg["data"]
     total_chunks = plink_cfg.get("total_chunks", None)
     chunk_size = plink_cfg.get("chunk_size", 10000)
@@ -162,15 +176,29 @@ def main() -> None:
             value=construct_cfg.get("value", "T_STAT"),
         )
         output["gwas_mri_stats"] = stats
+        save_construction_stats("construct_gwas_mri", stats)
+
+    # ── One-time GWAS phenotype construction ─────────────────────────────────
+    if gwas_phenotype_cfg.get("run", False):
+        print("\nConstructing joined GWAS phenotype file...")
+        stats = construct_gwas_phenotype(
+            input_path=gwas_phenotype_cfg["input_path"],
+            output_path=gwas_phenotype_cfg["output_path"],
+            how=gwas_phenotype_cfg.get("how", "inner"),
+        )
+        output["gwas_phenotype_stats"] = stats
+        save_construction_stats("gwas_phenotype_construction", stats)
 
     # ── Data pipeline ─────────────────────────────────────────────────────────
     if plink_cfg.get("prepare", False):
         mri_path = plink_cfg.get("mri", None)
+        output_suffix = plink_cfg.get("output_suffix", "")
         print("\nRunning data processing pipeline...")
         first_alignment = aligne_illness_mri(
             illness=data_cfg["illness"], verbose=True, chunk_size=chunk_size,
             total_chunks=total_chunks, mri_path=mri_path,
             polars=plink_cfg.get("polars", False),
+            output_suffix=output_suffix,
         )
         plink2 = {
             "--bfile": plink_cfg["ref"],
@@ -186,6 +214,7 @@ def main() -> None:
             illness=data_cfg["illness"], verbose=True,
             polars=plink_cfg.get("polars", False),
             mri_path=mri_path, chunk_size=chunk_size, total_chunks=total_chunks,
+            output_suffix=output_suffix,
         )
         output.update({
             "illness_mri_alignment": first_alignment,
