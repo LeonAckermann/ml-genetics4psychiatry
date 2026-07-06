@@ -1,0 +1,36 @@
+# Experiment: join per-illness GWAS Z-score files on (chrom, pos)
+
+construct_gwas_mri:
+  run: false
+
+gwas_phenotype_construction:
+  run: true
+  input_path: "./data/pipeline/input/gwas_illness"
+  output_path: "./data/pipeline/input/gwas_pheno/all_z_scores.txt"
+  how: inner   # inner: SNP must be present in every illness file, outer: keep all SNPs
+
+plink2:
+  prepare: false
+
+experiment:
+  run: false
+
+sampling:
+  run: false
+
+# Data settings
+data:
+  illness: SCZ
+  target: Z_scores_SCZ
+  test_size: 0.2
+  n_splits: 10
+  save_splits: true
+
+# Model settings
+model:
+  name: linear_regression    # Options: linear_regression, dnn, baseline
+
+# Evaluation settings
+evaluation:
+  metrics: [r2, mse]
+  binary_threshold: null      # Set to a number (e.g. 0 or 1) to also compute classification metrics
