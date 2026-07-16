@@ -18,10 +18,13 @@ import yaml
 from dataloader import load_illness_data
 from dataloader.pipeline import (
     aligne_clumped_illness_mri,
+    aligne_clumped_phenotype,
     aligne_illness_mri,
     call_plink2,
     construct_gwas_mri,
     construct_gwas_phenotype,
+    included_phenotype_columns,
+    prepare_phenotype_clump_input,
 )
 from dataloader.preprocess import sample
 from src import get_default_search_space, nested_cv
@@ -158,6 +161,7 @@ def main() -> None:
     plink_cfg = cfg["plink2"]
     construct_cfg = cfg.get("construct_gwas_mri", {})
     gwas_phenotype_cfg = cfg.get("gwas_phenotype_construction", {})
+    phenotype_clumping_cfg = cfg.get("phenotype_clumping", {})
     data_cfg = cfg["data"]
     total_chunks = plink_cfg.get("total_chunks", None)
     chunk_size = plink_cfg.get("chunk_size", 10000)
@@ -186,9 +190,49 @@ def main() -> None:
             output_path=gwas_phenotype_cfg["output_path"],
             how=gwas_phenotype_cfg.get("how", "inner"),
             join_key=gwas_phenotype_cfg.get("join_key", "chrom"),
+            info_csv_path=gwas_phenotype_cfg.get("info_csv_path"),
         )
         output["gwas_phenotype_stats"] = stats
         save_construction_stats("gwas_phenotype_construction", stats)
+
+    # ── Per-phenotype clumping (intermediate/ + output/ only, no 'final' merge
+    # unless create_final is set) ────────────────────────────────────────────
+    if phenotype_clumping_cfg.get("run", False):
+        print("\nRunning per-phenotype clumping...")
+        gwas_pheno_path = phenotype_clumping_cfg["gwas_pheno_path"]
+        phenotypes = phenotype_clumping_cfg.get("phenotypes")
+        if not phenotypes:
+            phenotypes = included_phenotype_columns(
+                gwas_pheno_path, phenotype_clumping_cfg["info_csv_path"],
+            )
+        print(f"Phenotypes: {', '.join(phenotypes)}")
+
+        create_final = phenotype_clumping_cfg.get("create_final", False)
+        phenotype_stats = {}
+        for phenotype in phenotypes:
+            print(f"\n--- Phenotype: {phenotype} ---")
+            prep_stats = prepare_phenotype_clump_input(
+                phenotype=phenotype, gwas_pheno_path=gwas_pheno_path,
+            )
+            plink2 = {
+                "--bfile": phenotype_clumping_cfg["ref"],
+                "--clump": f"./data/pipeline/intermediate/aligned_{phenotype}.txt",
+                "--clump-kb": phenotype_clumping_cfg.get("clump_kb", 500),
+                "--clump-r2": float(phenotype_clumping_cfg.get("r2", 0.05)),
+                "--clump-p1": phenotype_clumping_cfg.get("p_clump", 1),
+                "--clump-p2": phenotype_clumping_cfg.get("p_clump", 1),
+                "--out": f"./data/pipeline/output/clumped_{phenotype}",
+            }
+            call_plink2(plink2)
+            stats = {"prepare": prep_stats, "plink2": plink2}
+            if create_final:
+                stats["final"] = aligne_clumped_phenotype(
+                    phenotype=phenotype, gwas_pheno_path=gwas_pheno_path,
+                )
+            phenotype_stats[phenotype] = stats
+
+        output["phenotype_clumping_stats"] = phenotype_stats
+        save_construction_stats("phenotype_clumping", phenotype_stats)
 
     # ── Data pipeline ─────────────────────────────────────────────────────────
     if plink_cfg.get("prepare", False):
@@ -211,17 +255,18 @@ def main() -> None:
             "--out": plink_cfg["output"],
         }
         call_plink2(plink2)
-        second_alignment = aligne_clumped_illness_mri(
-            illness=data_cfg["illness"], verbose=True,
-            polars=plink_cfg.get("polars", False),
-            mri_path=mri_path, chunk_size=chunk_size, total_chunks=total_chunks,
-            output_suffix=output_suffix,
-        )
         output.update({
             "illness_mri_alignment": first_alignment,
             "plink2": plink2,
-            "clumped_illness_mri_alignment": second_alignment,
         })
+        if plink_cfg.get("create_final", True):
+            second_alignment = aligne_clumped_illness_mri(
+                illness=data_cfg["illness"], verbose=True,
+                polars=plink_cfg.get("polars", False),
+                mri_path=mri_path, chunk_size=chunk_size, total_chunks=total_chunks,
+                output_suffix=output_suffix,
+            )
+            output["clumped_illness_mri_alignment"] = second_alignment
 
     # ── Resolve HPO config ────────────────────────────────────────────────────
     hpo_cfg: dict = {}
@@ -272,10 +317,20 @@ def main() -> None:
         return float(v)
     pca_values: list[float | str | None] = [_parse_pca(v) for v in _raw_pca]
 
+    # data.illness left blank/empty → auto-detect every include=1 phenotype
+    # from info.csv that's present as a column in the gwas_pheno matrix.
+    illness_list = data_cfg.get("illness") or []
+    if not illness_list:
+        illness_list = included_phenotype_columns(
+            data_cfg["gwas_pheno_path"], data_cfg["info_csv_path"],
+        )
+        print(f"data.illness is empty — auto-detected {len(illness_list)} phenotypes "
+              f"from info.csv: {', '.join(illness_list)}")
+
     for dist, p, illness, row_ratio, col_ratio, task_type, noise_sigma, rand_frac, pca_var in product(
         data_cfg.get("distribution", []),
         data_cfg.get("p_clump", []),
-        data_cfg.get("illness", []),
+        illness_list,
         data_cfg.get("row_ratio", [1.0]),
         data_cfg.get("col_ratio", [1.0]),
         cfg["model"].get("type", ["regression"]),
@@ -326,6 +381,8 @@ def main() -> None:
                 chunk_size=data_cfg.get("chunk_size", 100000),
                 total_chunks=data_cfg.get("total_chunks", None),
                 sample_p=data_cfg.get("sample_p", False),
+                gwas_pheno_path=data_cfg.get("gwas_pheno_path"),
+                clumps_path=data_cfg.get("clumps_path"),
             )
             output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
         else:

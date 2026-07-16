@@ -246,21 +246,68 @@ def preprocess(df, target, testsize, seed=42, binary=False, p_value_binary=0.05)
     X_test = scaler.transform(X_test)
     return X_train, y_train, X_test, y_test
 
-def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False):
+def load_phenotype_clumped_data(
+    phenotype: str,
+    gwas_pheno_path,
+    clumps_path=None,
+    chunk_size: int = 100000,
+    total_chunks: Optional[int] = None,
+) -> pd.DataFrame:
+    """Build a phenotype-prediction dataset directly from clumps + the raw
+    gwas_pheno Z-score matrix, without a precomputed 'final' file.
 
-    if data_path is None:
-        data_path = "./data"
-    else:
-        data_path = "../../data"
+    Target: ``phenotype``'s own Z-score, renamed to ``Z``.
+    Features: every other phenotype's Z-score column in the matrix.
+    Rows: restricted to ``phenotype``'s own clumped (LD-independent,
+    significant) SNPs, so the row set is driven entirely by that phenotype's
+    own GWAS signal and stays valid regardless of which other phenotypes
+    have since been added to the matrix.
+    """
+    gwas_pheno_path = Path(gwas_pheno_path).expanduser().resolve()
+    if clumps_path is None:
+        clumps_path = Path(f"./data/pipeline/output/clumped_{phenotype}.clumps")
+    clumps_path = Path(clumps_path).expanduser().resolve()
 
-    if sample_p:
-        data_path = Path(f"{data_path}/pipeline/final_p/aligned_clumped_{illness}.txt").expanduser().resolve()
+    df_clumped = load_txt_polars(clumps_path, chunk_size=chunk_size, total_chunks=total_chunks)
+    df_clumped = df_clumped[["ID", "P"]]
+
+    clumped_ids = df_clumped["ID"].tolist()
+    df_pheno = (
+        pl.scan_csv(str(gwas_pheno_path), separator="\t")
+        .filter(pl.col("ID").is_in(clumped_ids))
+        .collect()
+    )
+    drop_cols = [c for c in ["chrom", "pos", "A0", "A1"] if c in df_pheno.columns]
+    df_pheno = df_pheno.drop(drop_cols)
+
+    if phenotype not in df_pheno.columns:
+        raise ValueError(f"Phenotype {phenotype!r} not found as a column in {gwas_pheno_path}")
+    df_pheno = df_pheno.rename({phenotype: "Z"}).to_pandas()
+
+    return df_clumped.merge(df_pheno, on="ID", how="inner")
+
+
+def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False, gwas_pheno_path=None, clumps_path=None):
+
+    if gwas_pheno_path is not None:
+        df = load_phenotype_clumped_data(
+            illness, gwas_pheno_path, clumps_path=clumps_path,
+            chunk_size=chunk_size, total_chunks=total_chunks,
+        )
     else:
-        data_path = Path(f"{data_path}/pipeline/final/aligned_clumped_{illness}.txt").expanduser().resolve()
-    if polars:
-        df = load_txt_polars(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
-    else:
-        df = load_txt(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
+        if data_path is None:
+            data_path = "./data"
+        else:
+            data_path = "../../data"
+
+        if sample_p:
+            data_path = Path(f"{data_path}/pipeline/final_p/aligned_clumped_{illness}.txt").expanduser().resolve()
+        else:
+            data_path = Path(f"{data_path}/pipeline/final/aligned_clumped_{illness}.txt").expanduser().resolve()
+        if polars:
+            df = load_txt_polars(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
+        else:
+            df = load_txt(Path(data_path), chunk_size=chunk_size, total_chunks=total_chunks)
 
     #df = load_txt(Path(f"{data_path}/pipeline/final/aligned_clumped_{illness}.txt"), chunk_size=10000)
     #df = df.copy()

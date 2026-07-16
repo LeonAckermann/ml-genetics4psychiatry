@@ -1,0 +1,42 @@
+# Experiment: join per-illness, per-chromosome imputed GWAS Z-score files
+# (e.g. z_BCAC_BREAST-CANCER_chr1.txt) on (chrom, pos)
+
+construct_gwas_mri:
+  run: false
+
+gwas_phenotype_construction:
+  run: true
+  input_path: "./data/pipeline/input/gwas_pheno/imputed"
+  output_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
+  info_csv_path: "./data/pipeline/input/gwas_pheno/info.csv"  # only include=1 phenotypes are used
+  how: inner       # inner: SNP must be present in every illness file, outer: keep all SNPs
+  join_key: chrom  # chrom: join on (chrom, pos) [default], rs: join on rsID
+  # If join_key: rs gives a much larger joined row count than join_key: chrom,
+  # that's a sign of a genome build mismatch between input files (rsIDs are
+  # build independent, chrom/pos are not).
+
+plink2:
+  prepare: false
+
+experiment:
+  run: false
+
+sampling:
+  run: false
+
+# Data settings
+data:
+  illness: SCZ
+  target: Z_scores_SCZ
+  test_size: 0.2
+  n_splits: 10
+  save_splits: true
+
+# Model settings
+model:
+  name: linear_regression    # Options: linear_regression, dnn, baseline
+
+# Evaluation settings
+evaluation:
+  metrics: [r2, mse]
+  binary_threshold: null      # Set to a number (e.g. 0 or 1) to also compute classification metrics
