@@ -2,6 +2,7 @@ import numpy as np
 from pathlib import Path
 import functools
 import gc
+import re
 import shlex
 import shutil
 import subprocess
@@ -135,14 +136,67 @@ def _gwas_phenotype_illness_name(file: Path) -> str:
     return file.stem[2:] if file.stem.startswith("z_") else file.stem
 
 
-def construct_gwas_phenotype(input_path, output_path, how="inner", join_key="chrom", verbose=True):
+def _included_phenotypes(info_csv_path: Path) -> list[tuple[str, str]]:
+    """Read (Consortium, Outcome) pairs marked include=1 in info.csv."""
+    info = pl.read_csv(info_csv_path, infer_schema_length=None)
+    included = (
+        info.filter(pl.col("include") == 1)
+        .select(["Consortium", "Outcome"])
+        .unique(maintain_order=True)
+    )
+    pairs = list(zip(included["Consortium"].to_list(), included["Outcome"].to_list()))
+    return sorted(pairs, key=lambda p: f"{p[0]}_{p[1]}")
+
+
+def _phenotype_chr_files(input_path: Path, consortium: str, outcome: str) -> list[Path]:
+    """Find z_<consortium>_<outcome>_chr<N>.txt files, sorted by chromosome number."""
+    pattern = re.compile(rf"^z_{re.escape(consortium)}_{re.escape(outcome)}_chr(\d+)\.txt$")
+    matches = [(int(m.group(1)), f) for f in input_path.iterdir() if (m := pattern.match(f.name))]
+    return [f for _, f in sorted(matches)]
+
+
+def _load_phenotype_frame(files: list[Path]) -> pl.DataFrame:
+    """Concatenate a phenotype's per-chromosome files, deriving chrom from the filename.
+
+    These per-chromosome files carry no ``chrom`` column of their own (unlike
+    the single-file-per-illness format), so it's parsed out of each filename.
+    """
+    frames = []
+    for file in files:
+        chrom = int(re.search(r"_chr(\d+)\.txt$", file.name).group(1))
+        df = pl.read_csv(
+            file,
+            separator="\t",
+            columns=["rsID", "pos", "A0", "A1", "Z"],
+            schema_overrides={
+                "pos": pl.Int32, "rsID": pl.Utf8, "A0": pl.Utf8, "A1": pl.Utf8, "Z": pl.Float64,
+            },
+        )
+        frames.append(df.with_columns(pl.lit(chrom, dtype=pl.Int8).alias("chrom")))
+    return pl.concat(frames)
+
+
+def construct_gwas_phenotype(
+    input_path, output_path, how="inner", join_key="chrom", verbose=True, info_csv_path=None,
+):
     """Join per-illness GWAS summary statistic files into one Z-score matrix.
 
-    Reads every ``z_<ILLNESS>.txt`` file under ``input_path``, harmonizes the
-    A0/A1 allele coding against the first illness (alphabetically) found, and
-    writes a single wide matrix with one Z-score column named after each
-    illness (e.g. ``ADHD``, ``SCZ``) plus the reference illness's rsID
-    (as ``ID``), chrom, pos, A0 and A1.
+    Two input layouts are supported:
+
+    - Single file per illness: reads every ``z_<ILLNESS>.txt`` file under
+      ``input_path`` directly (default, ``info_csv_path=None``).
+    - Per-chromosome files needing an include filter: when ``info_csv_path``
+      is given, reads it for rows with ``include == 1`` and, for each
+      (Consortium, Outcome) pair, concatenates its
+      ``z_<Consortium>_<Outcome>_chr<N>.txt`` files (chrom is parsed from the
+      filename) into one phenotype named ``<Consortium>_<Outcome>``.
+      Phenotypes excluded in info.csv, or with no matching files in
+      ``input_path``, are skipped.
+
+    Either way, the result harmonizes the A0/A1 allele coding against the
+    first illness (alphabetically) found, and writes a single wide matrix
+    with one Z-score column named after each illness (e.g. ``ADHD``, ``SCZ``)
+    plus the reference illness's rsID (as ``ID``), chrom, pos, A0 and A1.
 
     ``join_key`` controls how SNPs are matched across files:
       - "chrom": join on (chrom, pos) [default]
@@ -163,42 +217,80 @@ def construct_gwas_phenotype(input_path, output_path, how="inner", join_key="chr
     input_path = Path(input_path).expanduser().resolve()
     output_path = Path(output_path).expanduser().resolve()
 
-    files = sorted(input_path.glob("z_*.txt"))
-    if not files:
-        raise FileNotFoundError(f"No z_*.txt files found in {input_path}")
-
-    illnesses = [_gwas_phenotype_illness_name(f) for f in files]
     join_how = "inner" if how == "inner" else "full"
     key_cols = ["chrom", "pos"] if join_key == "chrom" else ["ID"]
     dedupe_subset = ["chrom", "pos"] if join_key == "chrom" else ["rsID"]
 
-    if verbose:
-        print(f"Found {len(files)} illness files: {', '.join(illnesses)}")
-        print(f"Joining on: {join_key}")
-
     per_file_frames = {}
     line_counts = {}
     dupe_counts = {}
-    for file, illness in zip(files, illnesses):
-        df = pl.read_csv(
-            file,
-            separator="\t",
-            columns=["chrom", "rsID", "pos", "A0", "A1", "Z"],
-            schema_overrides={
-                "chrom": pl.Int8, "pos": pl.Int32,
-                "rsID": pl.Utf8, "A0": pl.Utf8, "A1": pl.Utf8, "Z": pl.Float64,
-            },
-        )
-        n_rows = df.height
-        df = df.unique(subset=dedupe_subset, keep="first", maintain_order=True)
-        n_dupes = n_rows - df.height
 
-        per_file_frames[illness] = df
-        line_counts[illness] = n_rows
-        dupe_counts[illness] = n_dupes
+    if info_csv_path is not None:
+        info_csv_path = Path(info_csv_path).expanduser().resolve()
+        phenotypes = _included_phenotypes(info_csv_path)
         if verbose:
-            note = f" ({n_dupes} duplicate {join_key} rows dropped)" if n_dupes else ""
-            print(f"  {illness}: {n_rows} lines{note}")
+            print(f"{len(phenotypes)} phenotypes marked include=1 in {info_csv_path}")
+
+        illnesses = []
+        for consortium, outcome in phenotypes:
+            illness = f"{consortium}_{outcome}"
+            chr_files = _phenotype_chr_files(input_path, consortium, outcome)
+            if not chr_files:
+                if verbose:
+                    print(f"  {illness}: no z_{consortium}_{outcome}_chr*.txt files "
+                          f"found in {input_path} — skipped")
+                continue
+
+            df = _load_phenotype_frame(chr_files)
+            n_rows = df.height
+            df = df.unique(subset=dedupe_subset, keep="first", maintain_order=True)
+            n_dupes = n_rows - df.height
+
+            illnesses.append(illness)
+            per_file_frames[illness] = df
+            line_counts[illness] = n_rows
+            dupe_counts[illness] = n_dupes
+            if verbose:
+                note = f" ({n_dupes} duplicate {join_key} rows dropped)" if n_dupes else ""
+                print(f"  {illness}: {len(chr_files)} chromosome files, {n_rows} lines{note}")
+
+        if not illnesses:
+            raise FileNotFoundError(
+                f"None of the include=1 phenotypes in {info_csv_path} have matching "
+                f"z_<Consortium>_<Outcome>_chr*.txt files in {input_path}"
+            )
+    else:
+        files = sorted(input_path.glob("z_*.txt"))
+        if not files:
+            raise FileNotFoundError(f"No z_*.txt files found in {input_path}")
+
+        illnesses = [_gwas_phenotype_illness_name(f) for f in files]
+        if verbose:
+            print(f"Found {len(files)} illness files: {', '.join(illnesses)}")
+
+        for file, illness in zip(files, illnesses):
+            df = pl.read_csv(
+                file,
+                separator="\t",
+                columns=["chrom", "rsID", "pos", "A0", "A1", "Z"],
+                schema_overrides={
+                    "chrom": pl.Int8, "pos": pl.Int32,
+                    "rsID": pl.Utf8, "A0": pl.Utf8, "A1": pl.Utf8, "Z": pl.Float64,
+                },
+            )
+            n_rows = df.height
+            df = df.unique(subset=dedupe_subset, keep="first", maintain_order=True)
+            n_dupes = n_rows - df.height
+
+            per_file_frames[illness] = df
+            line_counts[illness] = n_rows
+            dupe_counts[illness] = n_dupes
+            if verbose:
+                note = f" ({n_dupes} duplicate {join_key} rows dropped)" if n_dupes else ""
+                print(f"  {illness}: {n_rows} lines{note}")
+
+    if verbose:
+        print(f"Joining on: {join_key}")
 
     reference = illnesses[0]
     ref_df = per_file_frames[reference].rename({"rsID": "ID", "Z": reference})
@@ -253,7 +345,7 @@ def construct_gwas_phenotype(input_path, output_path, how="inner", join_key="chr
         print(f"Saved joined GWAS phenotype matrix to {output_path}")
 
     stats = {
-        "n_files": len(files),
+        "n_files": len(illnesses),
         "illnesses": illnesses,
         "reference_illness": reference,
         "join_key": join_key,
@@ -265,6 +357,96 @@ def construct_gwas_phenotype(input_path, output_path, how="inner", join_key="chr
         "n_rows_joined": merged.height,
     }
     return stats
+
+
+def included_phenotype_columns(gwas_pheno_path, info_csv_path) -> list[str]:
+    """(Consortium, Outcome) pairs marked include=1 in info.csv that are also
+    present as columns in the joined gwas_pheno matrix, as ``<Consortium>_<Outcome>``."""
+    gwas_pheno_path = Path(gwas_pheno_path).expanduser().resolve()
+    header = pl.read_csv(gwas_pheno_path, separator="\t", n_rows=0).columns
+
+    phenotypes = [f"{c}_{o}" for c, o in _included_phenotypes(Path(info_csv_path))]
+    return [p for p in phenotypes if p in header]
+
+
+def _zscore_to_pvalue(z) -> np.ndarray:
+    """Two-sided normal p-value from a Z-score."""
+    from scipy.stats import norm
+
+    return 2 * norm.sf(np.abs(np.asarray(z, dtype=np.float64)))
+
+
+def prepare_phenotype_clump_input(phenotype, gwas_pheno_path, output_suffix="", verbose=True):
+    """Build the ID/P input plink2 needs to clump one phenotype's own GWAS signal.
+
+    Reads ``phenotype``'s Z-score column straight from the joined gwas_pheno
+    matrix — already allele-harmonized across phenotypes by
+    ``construct_gwas_phenotype`` — and derives a two-sided p-value from it,
+    since these Z-only matrices carry no P column of their own.
+    """
+    gwas_pheno_path = Path(gwas_pheno_path).expanduser().resolve()
+    df = pl.read_csv(gwas_pheno_path, separator="\t", columns=["ID", phenotype])
+    n_rows = df.height
+    df = df.drop_nulls(subset=[phenotype])
+    n_dropped = n_rows - df.height
+
+    df = df.with_columns(
+        pl.Series("P", _zscore_to_pvalue(df[phenotype].to_numpy()))
+    ).select(["ID", "P"])
+
+    output_path = Path(
+        f"./data/pipeline/intermediate/aligned_{phenotype}{output_suffix}.txt"
+    ).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.write_csv(str(output_path), separator="\t")
+    if verbose:
+        print(f"  {phenotype}: {df.height} rows ({n_dropped} null Z dropped), "
+              f"saved clump input at {output_path}")
+    return {"phenotype": phenotype, "n_rows": n_rows, "n_dropped_null": n_dropped,
+            "n_rows_written": df.height, "output_path": str(output_path)}
+
+
+def aligne_clumped_phenotype(phenotype, gwas_pheno_path, output_suffix="", verbose=True):
+    """Materialize a phenotype-prediction 'final' file: target = this
+    phenotype's own Z (renamed ``Z``), features = every other phenotype's Z
+    column, rows restricted to this phenotype's own clumped SNPs.
+
+    Optional — the same dataset can be built on the fly at experiment time
+    via ``dataloader.preprocess.load_phenotype_clumped_data`` without ever
+    writing this file, which is preferable once many phenotypes are involved.
+    """
+    gwas_pheno_path = Path(gwas_pheno_path).expanduser().resolve()
+    clumps_path = Path(
+        f"./data/pipeline/output/clumped_{phenotype}{output_suffix}.clumps"
+    ).expanduser().resolve()
+
+    df_clumped = pl.read_csv(clumps_path, separator="\t", columns=["ID", "P"])
+    n_rows_clumped = df_clumped.height
+
+    clumped_ids = df_clumped["ID"].to_list()
+    df_pheno = (
+        pl.scan_csv(str(gwas_pheno_path), separator="\t")
+        .filter(pl.col("ID").is_in(clumped_ids))
+        .collect()
+    )
+    drop_cols = [c for c in ["chrom", "pos", "A0", "A1"] if c in df_pheno.columns]
+    df_pheno = df_pheno.drop(drop_cols)
+
+    if phenotype not in df_pheno.columns:
+        raise ValueError(f"Phenotype {phenotype!r} not found as a column in {gwas_pheno_path}")
+    df_pheno = df_pheno.rename({phenotype: "Z"})
+
+    aligned = df_clumped.join(df_pheno, on="ID", how="inner")
+
+    output_path = Path(
+        f"./data/pipeline/final/aligned_clumped_{phenotype}{output_suffix}.txt"
+    ).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    aligned.write_csv(str(output_path), separator="\t")
+    if verbose:
+        print(f"  {phenotype}: {aligned.height} rows, saved final data at {output_path}")
+    return {"phenotype": phenotype, "n_rows_clumped": n_rows_clumped,
+            "n_rows_aligned": aligned.height, "output_path": str(output_path)}
 
 
 def merge_gwas_illness_mri(df_illness, df_mri):

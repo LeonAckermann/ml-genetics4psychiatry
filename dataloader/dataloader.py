@@ -289,12 +289,7 @@ def get_significant_metrics(illness, distribution, p_value, row_ratio=0.2, col_r
     return average_significant_per_row_count, average_significant_per_row_percentage, average_significant_per_col_count, average_significant_per_col_percentage, total_significant_entries, total_significant_percentage
 
 def load_illness_data(illness, in_notebook=True, polars=False, distribution="low", chunk_size=100000, total_chunks=None, p_value="0.001", row_ratio=1, col_ratio=1, top_rows=True, top_cols=True, mri_p_value=0.05):
-    illnesses = {"MDD": "0.001", "ADHD": "0.001", "ASD": "0.001", "OCD": "0.001", "SCZ": "0.0001", "BIP": "0.001", "AZ": "0.001"}
-
     if row_ratio == 1 and col_ratio == 1:
-        if illness not in illnesses:
-            raise ValueError(f"Unknown illness: {illness}. Valid options are: {', '.join(illnesses.keys())}")
-        pval_threshold = illnesses[illness]
         data_path = f"./data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt"
         if in_notebook:
             data_path = Path("../..") / data_path

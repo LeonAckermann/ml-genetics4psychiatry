@@ -1,0 +1,52 @@
+# Experiment: simple Linear Regression run for every include=1 phenotype
+# from info.csv that's present in all_z_scores_imputed.txt (currently
+# BCT_BASO and BCT_EO). Leaving data.illness blank makes main.py
+# auto-detect the phenotype list instead of enumerating it by hand.
+#
+# For each phenotype: predicts its own Z-score from every other phenotype
+# column, restricted to its own clumped SNPs (output/clumped_<phenotype>.clumps)
+# under p_clump.
+
+construct_gwas_mri:
+  run: false
+
+gwas_phenotype_construction:
+  run: false
+
+phenotype_clumping:
+  run: false
+
+plink2:
+  prepare: false
+
+data:
+  illness: []   # blank -> auto-detected from info_csv_path
+  gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
+  info_csv_path: "./data/pipeline/input/gwas_pheno/info.csv"
+  p_clump: [0.001]
+  distribution: ["low"]
+  target: Z
+  test_size: 0.2
+  n_splits: 5
+  save_splits: true
+  polars: true
+  chunk_size: 100000
+  row_ratio: [1.0]
+  col_ratio: [1.0]
+  top_rows: true
+  top_cols: true
+  sampling: true
+
+experiment:
+  run: true
+
+model:
+  name: linear_regression
+  type: ["regression"]
+
+hpo:
+  run: false
+
+evaluation:
+  metrics: [r2, mse, pearson_r2]
+  binary_threshold: null
