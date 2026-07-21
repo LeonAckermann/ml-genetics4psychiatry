@@ -1,0 +1,43 @@
+# Experiment: Residual DNN with HPO on every file in data/lucas.
+# data.dir runs one separate experiment per file (bypassing the GWAS
+# illness pipeline). Target column resolved per file via regex.
+
+plink2:
+  prepare: false
+
+experiment:
+  run: false
+
+data:
+  dir: "./data/lucas"
+  target_regex: "_target$"
+  ignore_columns: ["uniprot", "gene", "protein_variant"]
+
+# Model settings
+model:
+  name: residual_dnn
+  type: ["regression"]
+  p_value_binary: 0.0001
+
+# Hyperparameter optimization settings
+hpo:
+  run: true
+  n_trials: 30
+  outer_cv: 5
+  inner_cv: 5
+  search_space:
+    hidden_dim: [32, 128]
+    n_layers: [1, 8]
+    dropout: [0.1, 0.8]
+    learning_rate: [1e-6, 1e-2]
+    weight_decay: [0.0, 0.0001]
+    batch_size: [16, 64]
+    epochs: [20, 60]
+    patience: [5, 20]
+
+load_best_params: false
+
+# Evaluation settings
+evaluation:
+  metrics: [r2, mse, pearson_r2]
+  binary_threshold: null

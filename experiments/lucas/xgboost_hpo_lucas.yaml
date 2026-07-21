@@ -1,0 +1,45 @@
+# Experiment: XGBoost with HPO on every file in data/lucas.
+# data.dir runs one separate experiment per file (bypassing the GWAS
+# illness pipeline). Target column resolved per file via regex.
+
+plink2:
+  prepare: false
+
+experiment:
+  run: false
+
+data:
+  dir: "./data/lucas"
+  target_regex: "_target$"
+  ignore_columns: ["uniprot", "gene", "protein_variant"]
+
+# Model settings
+model:
+  name: xgboost
+  type: ["regression"]
+  p_value_binary: 0.0001
+
+# Hyperparameter optimization settings
+hpo:
+  run: true
+  n_trials: 10
+  outer_cv: 5
+  inner_cv: 5
+  search_space:
+    n_estimators: [30, 100]
+    max_depth: [3, 8]
+    learning_rate: [0.1, 0.6]
+    subsample: [0.5, 1.0]
+    colsample_bytree: [0.8, 1.0]
+    reg_alpha: [0, 0.1]
+    reg_lambda: [0, 0.5]
+    min_child_weight: [1, 3]
+    gamma: [0, 0.3]
+    early_stopping_rounds: [5, 20]
+
+load_best_params: false
+
+# Evaluation settings
+evaluation:
+  metrics: [r2, mse, pearson_r2]
+  binary_threshold: null

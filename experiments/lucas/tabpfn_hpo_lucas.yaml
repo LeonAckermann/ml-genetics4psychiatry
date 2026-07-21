@@ -1,0 +1,33 @@
+# Experiment: TabPFN with HPO on every file in data/lucas.
+# data.dir runs one separate experiment per file (bypassing the GWAS
+# illness pipeline). Target column resolved per file via regex.
+
+plink2:
+  prepare: false
+
+experiment:
+  run: false
+
+data:
+  dir: "./data/lucas"
+  target_regex: "_target$"
+  ignore_columns: ["uniprot", "gene", "protein_variant"]
+
+# Model settings
+model:
+  name: tabpfn    # Options: linear_regression, lasso_regression, ridge_regression, dnn, baseline, tabpfn
+  type: ["regression"]  # Options: regression, binary_classification
+  p_value_binary: 0.0001
+  finetune: false
+  device: mps
+  epochs: 30
+  learning_rate: 1e-5
+
+hpo:
+  run: true
+  outer_cv: 5
+
+# Evaluation settings
+evaluation:
+  metrics: [r2, mse, pearson_r2]
+  binary_threshold: null      # Set to a number (e.g. 0 or 1) to also compute classification metrics
