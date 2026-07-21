@@ -68,3 +68,18 @@ load_best_params: false
 evaluation:
   metrics: [r2, mse, pearson_r2]
   binary_threshold: null
+
+# SHAP explanation settings (opt-in; off by default). When enabled, each outer
+# fold's final model is explained on its test set and plots are written to
+# results/<experiment>/shap/fold_<k>/.
+shap:
+  enabled: false
+  background_size: 100          # rows sampled from the fold's training data as SHAP background
+  max_display: 20                # top-N features shown in summary/bar plots
+  dependence_features: []        # feature names to plot, or "all" for every feature. [] = skip
+  dependence_dpi: 50              # low-resolution dpi for dependence plots
+  waterfall_observations: []      # test-set row indices (per fold) to plot. [] = skip
+  force_stacked: true             # set false to skip the stacked force plot entirely
+  force_stacked_max_rows: 50       # cap on test-set rows composited into force_stacked.png
+  permutation_max_evals: 500      # eval budget for the black-box fallback explainer
+  tabpfn_budget: 128               # per-row coalition budget for TabPFN's shapiq explainer

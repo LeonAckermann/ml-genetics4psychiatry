@@ -8,6 +8,7 @@ from .evaluation import (
     report_fold_metrics,
 )
 from .hpo import build_model, get_default_search_space
+from .shap_explain import explain_fold
 from .training import train
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "build_model",
     "get_default_search_space",
     "train",
+    "explain_fold",
 ]

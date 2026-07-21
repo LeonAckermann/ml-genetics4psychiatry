@@ -1,0 +1,70 @@
+# Experiment: Linear Regression predicting BCT_EO's own Z-score from the
+# other phenotype columns in all_z_scores_imputed.txt, restricted to
+# BCT_EO's own clumped SNPs (output/clumped_BCT_EO.clumps) under p_clump.
+#
+# HPO is enabled with the minimum feasible settings (n_trials: 1,
+# inner_cv: 2) so the run exercises the HPO code path cheaply -- inner_cv
+# can't go below 2, sklearn's KFold requires n_splits >= 2. In practice
+# linear_regression (plain OLS) has no tunable hyperparameters, so
+# main.py auto-detects the empty search space and forces n_trials=0
+# regardless of the setting below -- this ends up being a plain
+# evaluation either way.
+#
+# SHAP explanation is enabled: each outer fold's model is explained on its
+# test set, plots saved to results/<experiment>/shap/fold_<k>/.
+
+construct_gwas_mri:
+  run: false
+
+gwas_phenotype_construction:
+  run: false
+
+phenotype_clumping:
+  run: false
+
+plink2:
+  prepare: false
+
+data:
+  illness: ["BCT_EO"]
+  p_clump: [0.001]
+  distribution: ["low"]
+  target: Z
+  test_size: 0.2
+  n_splits: 5
+  save_splits: true
+  polars: true
+  chunk_size: 100000
+  row_ratio: [1.0]
+  col_ratio: [1.0]
+  top_rows: true
+  top_cols: true
+  sampling: true
+  gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
+
+experiment:
+  run: true
+
+model:
+  name: linear_regression
+  type: ["regression"]
+
+hpo:
+  run: true
+  n_trials: 1
+  inner_cv: 2
+
+evaluation:
+  metrics: [r2, mse, pearson_r2]
+  binary_threshold: null
+
+shap:
+  enabled: true
+  background_size: 100
+  max_display: 20
+  dependence_features: ["BCT_BASO"]
+  dependence_dpi: 50
+  force_stacked: false
+  waterfall_observations: []
+  permutation_max_evals: 500
+  tabpfn_budget: 128

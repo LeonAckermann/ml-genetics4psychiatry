@@ -9,7 +9,10 @@ xgboost
 pyyaml
 piecewise-regression
 tabpfn
+tabpfn-extensions
 polars
 pyarrow
 optuna
 umap-learn
+shap
+shapiq

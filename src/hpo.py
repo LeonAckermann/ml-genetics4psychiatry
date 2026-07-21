@@ -324,6 +324,10 @@ def build_model(model_name: str, params: dict, cfg: dict):
     # ── TabPFN ───────────────────────────────────────────────────────────────
     if model_name == "tabpfn":
         device = cfg.get("model", {}).get("device", "cpu")
+        # SHAP's imputation-based explainer (src/shap_explain.py) is dramatically
+        # faster with TabPFN's KV cache engaged; only enable it for experiments
+        # that actually opted into SHAP so the normal training path is untouched.
+        fit_mode = "fit_with_cache" if cfg.get("shap", {}).get("enabled", False) else None
         if task_type == "binary_classification":
             if params.get("finetune", False):
                 from model import FinetunedTabPFNBinaryClassifierModel
@@ -332,9 +336,10 @@ def build_model(model_name: str, params: dict, cfg: dict):
                     device=device,
                     epochs=int(params.get("epochs", 30)),
                     learning_rate=float(params.get("learning_rate", 1e-5)),
+                    fit_mode=fit_mode,
                 )
             from model import TabPFNBinaryClassifierModel
-            return TabPFNBinaryClassifierModel(random_state=seed)
+            return TabPFNBinaryClassifierModel(random_state=seed, fit_mode=fit_mode)
 
         if params.get("finetune", False):
             from model import FinetunedTabPFNModel
@@ -343,9 +348,10 @@ def build_model(model_name: str, params: dict, cfg: dict):
                 device=device,
                 epochs=int(params.get("epochs", 30)),
                 learning_rate=float(params.get("learning_rate", 1e-5)),
+                fit_mode=fit_mode,
             )
         from model import TabPFNModel
-        return TabPFNModel(random_state=seed)
+        return TabPFNModel(random_state=seed, fit_mode=fit_mode)
 
     # ── Baseline ─────────────────────────────────────────────────────────────
     if model_name == "baseline":
