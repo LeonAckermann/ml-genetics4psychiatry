@@ -6,7 +6,7 @@ construct_gwas_mri:
 
 gwas_phenotype_construction:
   run: true
-  input_path: "./data/pipeline/input/gwas_pheno/imputed"
+  input_path: "../../../GGS_WKD/PROJECT_COPD/1._DATA/freeze2_0_imputed/results_file/imputed_GWAS"
   output_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
   info_csv_path: "./data/pipeline/input/gwas_pheno/info.csv"  # only include=1 phenotypes are used
   how: outer       # inner: SNP must be present in every illness file, outer: keep all SNPs
