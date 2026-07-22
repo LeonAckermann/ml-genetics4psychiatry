@@ -1,0 +1,39 @@
+# Experiment: Linear Regression on Schizophrenia (SCZ)
+
+
+plink2:
+  prepare: true
+  p_clump: 1
+  r2: 0.05
+  clump_kb: 500
+  #total_chunks: 5
+  chunk_size: 100000
+  #mri: "../../../WKD_ANTOINE/__HETEROGEN_MULTITRAIT/data/processed/all_data_gwas/all_z_scores.txt"
+  mri: "./data/pipeline/input/gwas_mri/all_p_scores.txt"
+  ref: "./data/pipeline/input/ref_panel/All_ensemble_1000G_hg38_EUR_all_chr"
+  aligned: "./data/pipeline/intermediate/aligned_SCZ_p.txt"
+  output: "./data/pipeline/output/clumped_SCZ_p"
+  polars: true
+
+experiment:
+  run: false
+
+sampling:
+  run: false
+
+# Data settings
+data:
+  illness: SCZ
+  target: P_scores_SCZ
+  test_size: 0.2
+  n_splits: 10
+  save_splits: true
+
+# Model settings
+model:
+  name: linear_regression    # Options: linear_regression, dnn, baseline
+
+# Evaluation settings
+evaluation:
+  metrics: [r2, mse]
+  binary_threshold: null      # Set to a number (e.g. 0 or 1) to also compute classification metrics

@@ -9,7 +9,7 @@ experiment:
   run: false
 
 data:
-  dir: "./data/lucas"
+  dir: "../../../GGS_WKD/WKD_LUCAS/ML_data"
   target_regex: "_target$"
   ignore_columns: ["uniprot", "gene", "protein_variant"]
 
@@ -19,7 +19,7 @@ model:
   type: ["regression"]  # Options: regression, binary_classification
   p_value_binary: 0.0001
   finetune: false
-  device: mps
+  device: cuda
   epochs: 30
   learning_rate: 1e-5
 

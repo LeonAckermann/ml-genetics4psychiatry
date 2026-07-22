@@ -11,7 +11,7 @@ experiment:
   run: true
 
 data:
-  dir: "./data/lucas"
+  dir: "../../../GGS_WKD/WKD_LUCAS/ML_data"
   target_regex: "_target$"
   ignore_columns: ["uniprot", "gene", "protein_variant"]
 
