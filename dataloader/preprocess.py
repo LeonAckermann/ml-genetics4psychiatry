@@ -272,8 +272,11 @@ def load_phenotype_clumped_data(
     df_clumped = df_clumped[["ID", "P"]]
 
     clumped_ids = df_clumped["ID"].tolist()
+    # "Null" is the missing-cell token construct_gwas_phenotype writes; declare
+    # it (and friends) so polars parses the Z-score columns as f64.
+    null_vals = ["Null", ".", "NA", "N/A", "NaN", "nan", "NULL", "null", ""]
     df_pheno = (
-        pl.scan_csv(str(gwas_pheno_path), separator="\t")
+        pl.scan_csv(str(gwas_pheno_path), separator="\t", null_values=null_vals)
         .filter(pl.col("ID").is_in(clumped_ids))
         .collect()
     )
