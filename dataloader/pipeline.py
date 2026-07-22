@@ -14,6 +14,12 @@ import polars as pl
 
 from dataloader.preprocess import load_txt, load_txt_polars
 
+# Missing-cell tokens in the *joined* gwas_pheno matrix. construct_gwas_phenotype
+# writes nulls as the literal "Null" (see write_csv null_value="Null" below), so
+# any reader of that matrix must treat "Null" as null or polars fails to parse
+# the Z-score columns as f64. Kept in sync with script/alignment/dense_submatrix.py.
+GWAS_PHENO_NULL_VALS = ["Null", ".", "NA", "N/A", "NaN", "nan", "NULL", "null", ""]
+
 def construct_gwas_mri(path, output_path, chunk_size=10000, total_chunks=None, polars=False, value="T_STAT"):
     path = Path(path).expanduser().resolve()
     output_path = Path(output_path).expanduser().resolve()
@@ -405,6 +411,33 @@ def included_phenotype_columns(gwas_pheno_path, info_csv_path) -> list[str]:
     return [p for p in phenotypes if p in header]
 
 
+def select_dense_features(density_json_path, min_density: float) -> list[str]:
+    """Pick a phenotype set from a density-frontier JSON.
+
+    Reads the JSON written by ``script.alignment.dense_submatrix --objective
+    density`` and returns the feature list of the subset that keeps the most
+    non-null entries while its density over all rows stays >= ``min_density``
+    (equivalently, the largest feature set at or above the sparsity floor).
+    """
+    import json
+
+    path = Path(density_json_path).expanduser().resolve()
+    with open(path) as fh:
+        data = json.load(fh)
+    frontier = data.get("frontier", [])
+    if not frontier:
+        raise ValueError(f"No 'frontier' records found in {path}")
+    ok = [r for r in frontier if r.get("density_all", 0.0) >= min_density]
+    if not ok:
+        best_avail = max((r["density_all"] for r in frontier), default=0.0)
+        raise ValueError(
+            f"No feature subset in {path} reaches density_all >= {min_density} "
+            f"(best available density is {best_avail:.4f}). Lower min_density."
+        )
+    pick = max(ok, key=lambda r: r["n_entries"])
+    return list(pick["features"])
+
+
 def _zscore_to_pvalue(z) -> np.ndarray:
     """Two-sided normal p-value from a Z-score."""
     from scipy.stats import norm
@@ -421,7 +454,8 @@ def prepare_phenotype_clump_input(phenotype, gwas_pheno_path, output_suffix="", 
     since these Z-only matrices carry no P column of their own.
     """
     gwas_pheno_path = Path(gwas_pheno_path).expanduser().resolve()
-    df = pl.read_csv(gwas_pheno_path, separator="\t", columns=["ID", phenotype])
+    df = pl.read_csv(gwas_pheno_path, separator="\t", columns=["ID", phenotype],
+                     null_values=GWAS_PHENO_NULL_VALS)
     n_rows = df.height
     df = df.drop_nulls(subset=[phenotype])
     n_dropped = n_rows - df.height
@@ -461,7 +495,8 @@ def aligne_clumped_phenotype(phenotype, gwas_pheno_path, output_suffix="", verbo
 
     clumped_ids = df_clumped["ID"].to_list()
     df_pheno = (
-        pl.scan_csv(str(gwas_pheno_path), separator="\t")
+        pl.scan_csv(str(gwas_pheno_path), separator="\t",
+                    null_values=GWAS_PHENO_NULL_VALS)
         .filter(pl.col("ID").is_in(clumped_ids))
         .collect()
     )
@@ -606,8 +641,35 @@ def aligne_illness_mri(illness, verbose=True, chunk_size=10000, total_chunks=Non
 
 
 
+def _resolve_plink2() -> str:
+    """Locate the plink2 binary. Prefers the ``PLINK2`` env var, then PATH,
+    then common local install locations, so the pipeline runs even when
+    ~/tools/bin isn't exported on PATH."""
+    from os import environ, access, X_OK
+
+    env_path = environ.get("PLINK2")
+    if env_path and access(env_path, X_OK):
+        return env_path
+
+    on_path = shutil.which("plink2")
+    if on_path:
+        return on_path
+
+    for cand in (Path.home() / "tools" / "bin" / "plink2",
+                 Path.home() / "tools" / "plink2" / "plink2"):
+        if cand.is_file() and access(cand, X_OK):
+            return str(cand)
+
+    raise FileNotFoundError(
+        "plink2 is not available. Put it on PATH (e.g. "
+        'export PATH="$HOME/tools/bin:$PATH"), set the PLINK2 env var to its '
+        "full path, or install it."
+    )
+
+
 def call_plink2(cfg: dict[str, str]) -> None:
-    cmd: list[str] = ["plink2"]
+    plink2_path = _resolve_plink2()
+    cmd: list[str] = [plink2_path]
     for key, value in cfg.items():
         cmd.append(key)
         if value is not None and str(value) != "":
@@ -615,17 +677,6 @@ def call_plink2(cfg: dict[str, str]) -> None:
 
     # print each element of the command on a new line for debugging
     print(f"Calling plink2 with command: {shlex.join(cmd)}")
-
-    #subprocess.run("ln -sf $HOME/tools/plink2/plink2 $HOME/tools/bin/plink2", shell=True)
-    # run this command with subprocess echo 'export PATH="$HOME/tools/bin:$PATH"' >> ~/.bashrc
-    #subprocess.run("echo 'export PATH=\"$HOME/tools/bin:$PATH\"' >> ~/.bashrc", shell=True)
-    #subprocess.run("source ~/.bashrc", shell=True)
-
-    plink2_path = shutil.which("plink2")
-    if not plink2_path:
-        raise FileNotFoundError(
-            "plink2 is not available. Install plink2 and ensure it's on your PATH."
-        )
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:

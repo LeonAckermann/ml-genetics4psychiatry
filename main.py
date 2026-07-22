@@ -25,6 +25,7 @@ from dataloader.pipeline import (
     construct_gwas_phenotype,
     included_phenotype_columns,
     prepare_phenotype_clump_input,
+    select_dense_features,
 )
 from dataloader.preprocess import sample
 from src import get_default_search_space, nested_cv
@@ -202,9 +203,17 @@ def main() -> None:
         gwas_pheno_path = phenotype_clumping_cfg["gwas_pheno_path"]
         phenotypes = phenotype_clumping_cfg.get("phenotypes")
         if not phenotypes:
-            phenotypes = included_phenotype_columns(
-                gwas_pheno_path, phenotype_clumping_cfg["info_csv_path"],
-            )
+            min_density = phenotype_clumping_cfg.get("min_density")
+            if min_density is not None:
+                density_json = phenotype_clumping_cfg.get(
+                    "density_json", "./data/pipeline/analysis/dense_density.json")
+                phenotypes = select_dense_features(density_json, float(min_density))
+                print(f"Selected {len(phenotypes)} phenotypes at density >= "
+                      f"{min_density} from {density_json}")
+            else:
+                phenotypes = included_phenotype_columns(
+                    gwas_pheno_path, phenotype_clumping_cfg["info_csv_path"],
+                )
         print(f"Phenotypes: {', '.join(phenotypes)}")
 
         create_final = phenotype_clumping_cfg.get("create_final", False)
@@ -317,15 +326,26 @@ def main() -> None:
         return float(v)
     pca_values: list[float | str | None] = [_parse_pca(v) for v in _raw_pca]
 
-    # data.illness left blank/empty → auto-detect every include=1 phenotype
+    # data.illness left blank/empty → auto-detect the phenotype list. Prefer the
+    # density-frontier selection (same features used for clumping) when
+    # data.min_density is set; otherwise fall back to every include=1 phenotype
     # from info.csv that's present as a column in the gwas_pheno matrix.
     illness_list = data_cfg.get("illness") or []
     if not illness_list:
-        illness_list = included_phenotype_columns(
-            data_cfg["gwas_pheno_path"], data_cfg["info_csv_path"],
-        )
-        print(f"data.illness is empty — auto-detected {len(illness_list)} phenotypes "
-              f"from info.csv: {', '.join(illness_list)}")
+        min_density = data_cfg.get("min_density")
+        if min_density is not None:
+            density_json = data_cfg.get(
+                "density_json", "./data/pipeline/analysis/dense_density.json")
+            illness_list = select_dense_features(density_json, float(min_density))
+            print(f"data.illness is empty — selected {len(illness_list)} phenotypes "
+                  f"at density >= {min_density} from {density_json}: "
+                  f"{', '.join(illness_list)}")
+        else:
+            illness_list = included_phenotype_columns(
+                data_cfg["gwas_pheno_path"], data_cfg["info_csv_path"],
+            )
+            print(f"data.illness is empty — auto-detected {len(illness_list)} phenotypes "
+                  f"from info.csv: {', '.join(illness_list)}")
 
     for dist, p, illness, row_ratio, col_ratio, task_type, noise_sigma, rand_frac, pca_var in product(
         data_cfg.get("distribution", []),
@@ -413,6 +433,24 @@ def main() -> None:
         print(f"Original shape {int(df.shape[0] / row_ratio)} samples, {int(df.shape[1] / col_ratio)} features")
 
         df_pandas = df.to_pandas() if hasattr(df, "to_pandas") else df
+
+        # ── Optional: drop rows with any missing value (complete-case matrix) ──
+        # Feature columns (other phenotypes) can be null at a phenotype's clumped
+        # SNPs; enable data.drop_missing to train on a fully non-null matrix.
+        drop_missing_stats = None
+        if data_cfg.get("drop_missing", False):
+            n_before = len(df_pandas)
+            df_pandas = df_pandas.dropna().reset_index(drop=True)
+            n_after = len(df_pandas)
+            drop_missing_stats = {
+                "n_before": n_before,
+                "n_after": n_after,
+                "n_dropped": n_before - n_after,
+                "frac_dropped": (n_before - n_after) / n_before if n_before else 0.0,
+            }
+            print(f"  drop_missing: kept {n_after:,}/{n_before:,} rows with "
+                  f"no missing values ({n_before - n_after:,} dropped)")
+
         id_cols = [col for col in ["ID"] if col in df_pandas.columns]
         X = df_pandas.drop(columns=[data_cfg["target"]] + id_cols)
         y = df_pandas[data_cfg["target"]]
@@ -496,6 +534,7 @@ def main() -> None:
             "noise_sigma": noise_sigma,
             "rand_frac": rand_frac,
             "pca": pca_var,
+            "drop_missing": drop_missing_stats,
             "config": iter_cfg,
             "timestamp": timestamp,
             "hpo": results,

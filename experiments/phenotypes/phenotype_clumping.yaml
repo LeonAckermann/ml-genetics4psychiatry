@@ -21,7 +21,14 @@ gwas_phenotype_construction:
 
 phenotype_clumping:
   run: true
+  # Phenotype selection, in priority order:
+  #   1. explicit `phenotypes:` list below, else
+  #   2. `min_density:` -> take the densest feature set from `density_json`
+  #      whose sparsity (density over all rows) is >= min_density, else
+  #   3. auto-detect all include=1 phenotypes present in the matrix.
   # phenotypes: [BCT_BASO, BCT_EO]   # optional explicit list; omit to auto-detect
+  min_density: 0.95                  # use the optimal feature set at >= 95% density
+  density_json: "./data/pipeline/analysis/dense_density.json"
   gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
   info_csv_path: "./data/pipeline/input/gwas_pheno/info.csv"
   ref: "./data/pipeline/input/ref_panel/All_ensemble_1000G_hg38_EUR_all_chr"
