@@ -8,15 +8,22 @@ maximize the density of the resulting matrix.
 
 Problem framing
 ---------------
-Let ``M`` be the presence matrix (1 = non-null Z, 0 = null). Picking a set of
-columns ``S`` and keeping only rows that are non-null across *all* of ``S``
-gives a fully dense (complete-case) submatrix of shape ``n(S) x |S|`` where
-``n(S) = |intersection of each column's non-null row set|``. Because ``n(S)``
-shrinks monotonically as ``S`` grows, "keep as many features with the least
-sparsity" is a trade-off curve, not a single threshold. This is the classic
-maximum-area biclique / largest all-ones submatrix problem (NP-hard at 193
-columns), so we compute a strong *heuristic* Pareto frontier rather than a
-provably optimal one.
+Let ``M`` be the presence matrix (1 = non-null Z, 0 = null). Two objectives are
+supported for choosing a column subset ``S`` (``--objective``):
+
+* ``complete`` (default) - largest fully-dense submatrix. Keep only rows that
+  are non-null across *all* of ``S``; this gives a complete-case block of shape
+  ``n(S) x |S|`` where ``n(S) = |intersection of each column's non-null row
+  set|``. ``n(S)`` shrinks monotonically as ``S`` grows, so this is a trade-off
+  curve. It is the classic maximum-area all-ones submatrix problem (NP-hard at
+  193 columns), so we trace a strong *heuristic* Pareto frontier.
+
+* ``density`` - most non-null entries. Keep *all* rows for the chosen columns
+  (the submatrix still has null cells) and maximize the count of non-null
+  entries. Because that count is separable over columns (it is just the sum of
+  the columns' non-null counts), the optimal k-subset is exactly the ``k``
+  densest columns - no search needed. Total entries rises with ``k`` while the
+  filled *fraction* (density) falls, so the frontier reports both.
 
 Two-stage approach
 ------------------
@@ -50,6 +57,10 @@ Usage
     # Recommend a single subset given a floor on rows or features:
         ... --min-rows 500000        # largest feature set keeping >= 500k rows
         ... --min-features 20        # subset of >= 20 features keeping most rows
+
+    # Maximize non-null entries instead (keep all rows, densest columns):
+        ... --objective density
+        ... --objective density --min-density 0.8   # most entries at >= 80% filled
 """
 
 from __future__ import annotations
@@ -161,6 +172,10 @@ class DenseSearch:
         # padding+view, so bitwise AND/equality stay correct.
         self.pat_words = self._to_words(patterns)   # (P, W) uint64
         self.W = self.pat_words.shape[1]
+        # Per-feature non-null row counts, folded straight from the histogram:
+        # unpack each pattern's bits and weight by how many rows share it.
+        bits = np.unpackbits(patterns, axis=1)[:, :self.C]   # (P, C) uint8
+        self.present_counts = (counts.astype(np.int64) @ bits).astype(np.int64)
 
     @staticmethod
     def _to_words(packed_u8: np.ndarray) -> np.ndarray:
@@ -187,12 +202,40 @@ class DenseSearch:
 
     def per_feature_present(self) -> np.ndarray:
         """Rows present (non-null) for each single feature -> (C,) int64."""
-        out = np.empty(self.C, dtype=np.int64)
-        for c in range(self.C):
-            S = np.zeros(self.C, dtype=bool)
+        return self.present_counts.copy()
+
+    def nonzero_entries(self, S_bool: np.ndarray) -> int:
+        """Total non-null cells in the (all-rows x S) submatrix. Because the
+        columns don't interact, this is just the sum of the selected columns'
+        non-null counts."""
+        return int(self.present_counts[S_bool].sum())
+
+    def rows_nonempty(self, S_bool: np.ndarray) -> int:
+        """Rows with at least one non-null cell among the selected columns
+        (i.e. rows that survive after dropping all-null rows)."""
+        if not S_bool.any():
+            return 0
+        S = self._pack(S_bool)
+        any_present = np.any((self.pat_words & S) != 0, axis=1)
+        return int(self.counts[any_present].sum())
+
+    def density_frontier(self, required: np.ndarray) -> dict[int, tuple]:
+        """Frontier for the 'most non-null entries' objective (all rows kept).
+
+        Total entries is separable over columns, so the optimum k-subset is
+        simply the k densest columns (with any ``required`` columns forced in).
+        Returns ``{k: (n_entries, subset_bool)}`` for k from |required|..C."""
+        rest = [c for c in np.argsort(-self.present_counts, kind="stable")
+                if not required[c]]
+        order = list(np.where(required)[0]) + rest
+        env, S, entries = {}, np.zeros(self.C, dtype=bool), 0
+        k0 = int(required.sum())
+        for idx, c in enumerate(order, start=1):
             S[c] = True
-            out[c] = self.n_complete(S)
-        return out
+            entries += int(self.present_counts[c])
+            if idx >= max(1, k0):            # only record once all required are in
+                env[idx] = (entries, S.copy())
+        return env
 
     # -- frontier tracers ---------------------------------------------------
 
@@ -318,6 +361,82 @@ def pick_by_floor(records: list[dict], min_rows=None, min_features=None):
     return max(records, key=lambda r: r["area"])   # default: max dense area
 
 
+def density_records(search: DenseSearch, env: dict[int, tuple]) -> list[dict]:
+    """Flatten a density frontier into JSON-friendly records, one per k."""
+    R = search.total_rows
+    records = []
+    for k in sorted(env):
+        entries, S = env[k]
+        n_eff = search.rows_nonempty(S)          # rows with >=1 non-null cell
+        feats = [search.features[i] for i in np.where(S)[0]]
+        records.append({
+            "n_features": k,
+            "n_entries": int(entries),                       # non-null cells
+            "n_cells_all": R * k,                            # cells over all rows
+            "density_all": entries / (R * k) if R and k else 0.0,
+            "n_rows_nonempty": n_eff,                        # rows kept after drop
+            "density_nonempty": entries / (n_eff * k) if n_eff and k else 0.0,
+            "features": feats,
+        })
+    return records
+
+
+def pick_by_density(records: list[dict], min_density=None, min_features=None):
+    """Pick a single subset for the density objective. With ``min_density`` (a
+    floor on the fraction of non-null cells over all rows) pick the feature set
+    with the most non-null entries that still clears the floor; with
+    ``min_features`` pick the densest set of at least that many features."""
+    if min_density is not None:
+        ok = [r for r in records if r["density_all"] >= min_density]
+        return max(ok, key=lambda r: r["n_entries"]) if ok else None
+    if min_features is not None:
+        ok = [r for r in records if r["n_features"] >= min_features]
+        return max(ok, key=lambda r: r["density_all"]) if ok else None
+    return max(records, key=lambda r: r["n_entries"])   # trivially all features
+
+
+def save_density_outputs(out_prefix: Path, search: DenseSearch,
+                         records: list[dict]) -> None:
+    out_prefix.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_prefix.with_suffix(".json"), "w") as fh:
+        json.dump({
+            "objective": "max_nonzero_entries",
+            "total_rows": search.total_rows,
+            "total_features": search.C,
+            "all_features": search.features,
+            "frontier": records,
+        }, fh, indent=2)
+
+    lines = ["n_features\tn_entries\tdensity_all\tn_rows_nonempty\tdensity_nonempty"]
+    lines += [f"{r['n_features']}\t{r['n_entries']}\t{r['density_all']:.6f}\t"
+              f"{r['n_rows_nonempty']}\t{r['density_nonempty']:.6f}" for r in records]
+    out_prefix.with_suffix(".tsv").write_text("\n".join(lines) + "\n")
+
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        ks = [r["n_features"] for r in records]
+        ent = [r["n_entries"] for r in records]
+        den = [r["density_all"] for r in records]
+        fig, ax1 = plt.subplots(figsize=(8, 5))
+        ax1.plot(ks, ent, marker="o", ms=3, color="C0", label="non-null entries")
+        ax1.set_xlabel("Number of features kept")
+        ax1.set_ylabel("Non-null entries", color="C0")
+        ax1.tick_params(axis="y", labelcolor="C0")
+        ax2 = ax1.twinx()
+        ax2.plot(ks, den, marker="s", ms=3, color="C3", label="density (all rows)")
+        ax2.set_ylabel("Density = entries / (rows x features)", color="C3")
+        ax2.tick_params(axis="y", labelcolor="C3")
+        ax1.set_title("Sparsity trade-off: total non-null entries vs. density")
+        ax1.grid(True, alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(out_prefix.with_suffix(".png"), dpi=150)
+        plt.close(fig)
+    except Exception as e:   # plotting is best-effort
+        print(f"(skipped plot: {e})")
+
+
 def save_outputs(out_prefix: Path, search: DenseSearch, records: list[dict]) -> None:
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     with open(out_prefix.with_suffix(".json"), "w") as fh:
@@ -368,6 +487,11 @@ def parse_args():
     p.add_argument("--rebuild", action="store_true",
                    help="Rebuild the cache even if it exists")
     p.add_argument("--batch-size", type=int, default=500_000)
+    p.add_argument("--objective", choices=["complete", "density"], default="complete",
+                   help="'complete' (default): largest fully-non-null submatrix "
+                        "(maximize complete-case rows per feature count). 'density': "
+                        "keep all rows and maximize the number of non-null entries "
+                        "in the chosen columns (the k densest columns).")
     p.add_argument("--require", nargs="*", default=[],
                    help="Feature names forced to always be included (anchor)")
     p.add_argument("--swap-rounds", type=int, default=0,
@@ -378,6 +502,9 @@ def parse_args():
                    help="Recommend the largest feature set keeping >= this many rows")
     p.add_argument("--min-features", type=int, default=None,
                    help="Recommend the subset of >= this many features keeping most rows")
+    p.add_argument("--min-density", type=float, default=None,
+                   help="(density objective) Recommend the feature set with the most "
+                        "non-null entries whose density over all rows is >= this floor")
     return p.parse_args()
 
 
@@ -406,16 +533,30 @@ def main():
     for r in args.require:
         required[features.index(r)] = True
 
-    env = search.frontier(required, swap_rounds=args.swap_rounds)
-    records = frontier_records(search, env)
-    save_outputs(args.out, search, records)
-    print(f"\nFrontier written to {args.out}.json / .tsv / .png")
+    if args.objective == "density":
+        env = search.density_frontier(required)
+        records = density_records(search, env)
+        save_density_outputs(args.out, search, records)
+        print(f"\nDensity frontier written to {args.out}.json / .tsv / .png")
 
-    pick = pick_by_floor(records, args.min_rows, args.min_features)
-    if pick:
-        print(f"\nRecommended subset ({pick['n_features']} features, "
-              f"{pick['n_rows']:,} rows, coverage {pick['row_coverage']:.1%}):")
-        print("  " + ", ".join(pick["features"]))
+        pick = pick_by_density(records, args.min_density, args.min_features)
+        if pick:
+            print(f"\nRecommended subset ({pick['n_features']} features, "
+                  f"{pick['n_entries']:,} non-null entries, "
+                  f"density {pick['density_all']:.1%} over all rows / "
+                  f"{pick['density_nonempty']:.1%} over non-empty rows):")
+            print("  " + ", ".join(pick["features"]))
+    else:
+        env = search.frontier(required, swap_rounds=args.swap_rounds)
+        records = frontier_records(search, env)
+        save_outputs(args.out, search, records)
+        print(f"\nFrontier written to {args.out}.json / .tsv / .png")
+
+        pick = pick_by_floor(records, args.min_rows, args.min_features)
+        if pick:
+            print(f"\nRecommended subset ({pick['n_features']} features, "
+                  f"{pick['n_rows']:,} rows, coverage {pick['row_coverage']:.1%}):")
+            print("  " + ", ".join(pick["features"]))
 
 
 if __name__ == "__main__":
