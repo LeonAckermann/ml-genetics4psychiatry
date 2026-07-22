@@ -440,7 +440,7 @@ def main() -> None:
             from scipy.stats import norm
             y = norm.sf(abs(y)) * 2
             y = (y <= iter_cfg["model"]["p_value_binary"]).astype(int)
-        
+
         # ── Resolve best params and n_trials ──────────────────────────────────
         best_params_for_eval = None
 

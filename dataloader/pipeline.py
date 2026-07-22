@@ -193,10 +193,16 @@ def construct_gwas_phenotype(
       Phenotypes excluded in info.csv, or with no matching files in
       ``input_path``, are skipped.
 
-    Either way, the result harmonizes the A0/A1 allele coding against the
-    first illness (alphabetically) found, and writes a single wide matrix
-    with one Z-score column named after each illness (e.g. ``ADHD``, ``SCZ``)
-    plus the reference illness's rsID (as ``ID``), chrom, pos, A0 and A1.
+    Either way, the result harmonizes the A0/A1 allele coding — and, in
+    "chrom" join mode, the rsID — against a per-row consensus: for each SNP,
+    the highest-priority illness that has data at that row (illness list
+    order, i.e. the first illness is tried first and later illnesses are
+    only used as a fallback for rows the earlier ones lack) supplies
+    ``ID``/``A0``/``A1``. This means ``how="outer"`` can retain rows the
+    first illness has no data for, without incorrectly dropping them or
+    leaving ``ID`` null when a later illness has it. The result writes a
+    single wide matrix with one Z-score column named after each illness
+    (e.g. ``ADHD``, ``SCZ``) plus ID, chrom, pos, A0 and A1.
 
     ``join_key`` controls how SNPs are matched across files:
       - "chrom": join on (chrom, pos) [default]
@@ -207,9 +213,10 @@ def construct_gwas_phenotype(
     a genome build mismatch between input files, since rsIDs are build
     independent while chrom/pos are not.
 
-    Alleles reported in swapped order relative to the reference have their
+    Alleles reported in swapped order relative to the consensus have their
     Z score sign flipped; SNPs whose alleles can't be reconciled in either
-    order are dropped from the output.
+    order have only that illness's Z score nulled out — the row itself, and
+    every other illness's value in it, is kept.
     """
     if join_key not in ("chrom", "rs"):
         raise ValueError(f"join_key must be 'chrom' or 'rs', got {join_key!r}")
@@ -293,14 +300,21 @@ def construct_gwas_phenotype(
         print(f"Joining on: {join_key}")
 
     reference = illnesses[0]
-    ref_df = per_file_frames[reference].rename({"rsID": "ID", "Z": reference})
 
-    renamed_frames = [ref_df]
-    for illness in illnesses[1:]:
+    # In "rs" mode ID is the join key itself (key_cols == ["ID"]), so every
+    # frame's rsID must keep the shared name "ID" for the join to match on
+    # it — coalesce=True on the join already backfills it there. In "chrom"
+    # mode ID isn't a key column, so each illness's rsID is kept under a
+    # unique per-illness name and reconciled into a single "ID" below,
+    # the same way A0/A1 are.
+    renamed_frames = []
+    for i, illness in enumerate(illnesses):
+        rsid_name = f"ID_{illness}" if join_key == "chrom" else "ID"
         df = per_file_frames[illness].rename(
-            {"rsID": "ID", "A0": f"A0_{illness}", "A1": f"A1_{illness}", "Z": illness}
+            {"rsID": rsid_name, "A0": f"A0_{illness}", "A1": f"A1_{illness}", "Z": illness}
         )
-        df = df.drop("ID") if join_key == "chrom" else df.drop(["chrom", "pos"])
+        if i > 0 and join_key == "rs":
+            df = df.drop(["chrom", "pos"])
         renamed_frames.append(df)
 
     merged = functools.reduce(
@@ -308,11 +322,25 @@ def construct_gwas_phenotype(
         renamed_frames,
     )
 
+    # Per-row consensus ID/alleles: the first illness (in priority/list
+    # order) that has data at this row. Guaranteed non-null on every row
+    # (each row exists because at least one illness contributed it), so the
+    # match/swap checks below never see a null reference allele and can't
+    # silently drop rows where only a lower-priority illness is present.
+    if join_key == "chrom":
+        merged = merged.with_columns(
+            pl.coalesce([pl.col(f"ID_{ill}") for ill in illnesses]).alias("ID")
+        ).drop([f"ID_{ill}" for ill in illnesses])
+
+    merged = merged.with_columns(
+        pl.coalesce([pl.col(f"A0_{ill}") for ill in illnesses]).alias("A0"),
+        pl.coalesce([pl.col(f"A1_{ill}") for ill in illnesses]).alias("A1"),
+    )
+
     swap_counts = {}
     mismatch_counts = {}
-    drop_mask = pl.Series([False] * merged.height)
 
-    for illness in illnesses[1:]:
+    for illness in illnesses:
         a0_col, a1_col, z_col = f"A0_{illness}", f"A1_{illness}", illness
 
         is_match = (pl.col(a0_col) == pl.col("A0")) & (pl.col(a1_col) == pl.col("A1"))
@@ -327,20 +355,27 @@ def construct_gwas_phenotype(
         swap_counts[illness] = int(flags["swap"].sum())
         mismatch_counts[illness] = int(flags["mismatch"].sum())
 
+        # Unreconcilable alleles: null out only this illness's Z score.
+        # Swapped alleles: flip the sign. Everything else: keep as-is.
         merged = merged.with_columns(
-            pl.when(flags["swap"]).then(-pl.col(z_col)).otherwise(pl.col(z_col)).alias(z_col)
+            pl.when(flags["mismatch"]).then(None)
+            .when(flags["swap"]).then(-pl.col(z_col))
+            .otherwise(pl.col(z_col))
+            .alias(z_col)
         ).drop([a0_col, a1_col])
 
-        drop_mask = drop_mask | flags["mismatch"]
-
-    n_mismatched_rows = int(drop_mask.sum())
-    merged = merged.filter(~drop_mask)
+    n_values_nulled_mismatch = sum(mismatch_counts.values())
 
     final_cols = ["ID", "chrom", "pos", "A0", "A1"] + illnesses
     merged = merged.select(final_cols)
 
+    sparsity = {
+        illness: merged[illness].null_count() / merged.height
+        for illness in illnesses
+    }
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    merged.write_csv(str(output_path), separator="\t")
+    merged.write_csv(str(output_path), separator="\t", null_value="Null")
     if verbose:
         print(f"Saved joined GWAS phenotype matrix to {output_path}")
 
@@ -353,8 +388,9 @@ def construct_gwas_phenotype(
         "duplicate_counts": dupe_counts,
         "swap_counts": swap_counts,
         "mismatch_counts": mismatch_counts,
-        "n_rows_dropped_mismatch": n_mismatched_rows,
+        "n_values_nulled_mismatch": n_values_nulled_mismatch,
         "n_rows_joined": merged.height,
+        "feature_sparsity": sparsity,
     }
     return stats
 

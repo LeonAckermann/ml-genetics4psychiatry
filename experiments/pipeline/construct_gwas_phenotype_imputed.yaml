@@ -9,7 +9,7 @@ gwas_phenotype_construction:
   input_path: "./data/pipeline/input/gwas_pheno/imputed"
   output_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
   info_csv_path: "./data/pipeline/input/gwas_pheno/info.csv"  # only include=1 phenotypes are used
-  how: inner       # inner: SNP must be present in every illness file, outer: keep all SNPs
+  how: outer       # inner: SNP must be present in every illness file, outer: keep all SNPs
   join_key: chrom  # chrom: join on (chrom, pos) [default], rs: join on rsID
   # If join_key: rs gives a much larger joined row count than join_key: chrom,
   # that's a sign of a genome build mismatch between input files (rsIDs are
