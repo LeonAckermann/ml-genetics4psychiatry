@@ -403,6 +403,8 @@ def main() -> None:
                 sample_p=data_cfg.get("sample_p", False),
                 gwas_pheno_path=data_cfg.get("gwas_pheno_path"),
                 clumps_path=data_cfg.get("clumps_path"),
+                max_col_missing=data_cfg.get("max_col_missing"),
+                min_complete_frac=data_cfg.get("min_complete_frac"),
             )
             output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
         else:
@@ -454,6 +456,13 @@ def main() -> None:
         id_cols = [col for col in ["ID"] if col in df_pandas.columns]
         X = df_pandas.drop(columns=[data_cfg["target"]] + id_cols)
         y = df_pandas[data_cfg["target"]]
+
+        # Predictor features actually used from the sampled file (i.e. the
+        # phenotype columns that survived the sampling-time column pruning).
+        selected_features = {
+            "n_features": int(X.shape[1]),
+            "features": list(X.columns),
+        }
 
         # ── Optional random row subsampling (distinct from row_ratio) ─────────
         if rand_frac < 1.0:
@@ -535,6 +544,7 @@ def main() -> None:
             "rand_frac": rand_frac,
             "pca": pca_var,
             "drop_missing": drop_missing_stats,
+            "selected_features": selected_features,
             "config": iter_cfg,
             "timestamp": timestamp,
             "hpo": results,
