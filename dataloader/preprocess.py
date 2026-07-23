@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
@@ -290,7 +291,78 @@ def load_phenotype_clumped_data(
     return df_clumped.merge(df_pheno, on="ID", how="inner")
 
 
-def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False, gwas_pheno_path=None, clumps_path=None):
+_COL_FILTER_PROTECT = ("ID", "Z", "P", "Z_bin")
+
+
+def filter_columns_by_missing(df, threshold, protect=_COL_FILTER_PROTECT):
+    """Drop feature columns whose fraction of missing values exceeds ``threshold``.
+
+    Operates on the assembled sample matrix (rows = SNPs, columns = phenotype
+    features). ``protect`` columns (ID, target Z, P, Z_bin) are never dropped.
+    Returns ``(filtered_df, stats)``.
+    """
+    R = len(df)
+    feat_cols = [c for c in df.columns if c not in protect]
+    dropped = [c for c in feat_cols if (df[c].isnull().mean() if R else 0.0) > threshold]
+    keep_cols = [c for c in df.columns if c not in dropped]
+    stats = {
+        "strategy": "max_col_missing",
+        "threshold": threshold,
+        "n_features_before": len(feat_cols),
+        "n_features_kept": len(feat_cols) - len(dropped),
+        "n_features_dropped": len(dropped),
+        "dropped_columns": dropped,
+    }
+    return df[keep_cols], stats
+
+
+def pick_densest_features(df, min_complete_frac, protect=_COL_FILTER_PROTECT):
+    """Pick the largest set of densest feature columns such that the fraction of
+    rows complete (non-null across every kept feature) stays >= ``min_complete_frac``.
+
+    Adds features densest-first; the complete-row count only falls as features
+    are added, so this walks that curve and stops at the last feature count that
+    still clears the target fraction. Returns ``(filtered_df, stats)``.
+    """
+    R = len(df)
+    feat_cols = [c for c in df.columns if c not in protect]
+    if R == 0 or not feat_cols:
+        return df, {"strategy": "min_complete_frac", "threshold": min_complete_frac,
+                    "n_features_before": len(feat_cols), "n_features_kept": len(feat_cols),
+                    "n_features_dropped": 0, "achieved_complete_frac": None,
+                    "dropped_columns": []}
+
+    present = df[feat_cols].notnull().to_numpy()          # (R, F) bool
+    order = np.argsort(present.mean(axis=0), kind="stable")[::-1]   # densest first
+    keep_mask = np.ones(R, dtype=bool)
+    best_k, best_frac = 0, 1.0
+    for k, idx in enumerate(order, start=1):
+        keep_mask = keep_mask & present[:, idx]
+        frac = keep_mask.sum() / R
+        if frac >= min_complete_frac:
+            best_k, best_frac = k, frac
+        else:
+            break                                          # monotonic: never recovers
+    if best_k == 0:                                        # even densest single column misses target
+        best_k, best_frac = 1, float(present[:, order[0]].mean())
+        print(f"  WARNING: min_complete_frac={min_complete_frac} unreachable; "
+              f"densest single feature gives only {best_frac:.1%} complete rows")
+
+    kept_feats = {feat_cols[i] for i in order[:best_k]}
+    keep_cols = [c for c in df.columns if c in protect or c in kept_feats]
+    stats = {
+        "strategy": "min_complete_frac",
+        "threshold": min_complete_frac,
+        "n_features_before": len(feat_cols),
+        "n_features_kept": best_k,
+        "n_features_dropped": len(feat_cols) - best_k,
+        "achieved_complete_frac": best_frac,
+        "dropped_columns": [c for c in feat_cols if c not in kept_feats],
+    }
+    return df[keep_cols], stats
+
+
+def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False, gwas_pheno_path=None, clumps_path=None, max_col_missing=None, min_complete_frac=None):
 
     if gwas_pheno_path is not None:
         df = load_phenotype_clumped_data(
@@ -321,19 +393,19 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
     significant     = df.loc[df["P"] <= p_value].copy()
     non_significant = df.loc[df["P"] > p_value].copy()
 
+    # Each branch builds the final sampled `df` and its `output_path`; the shared
+    # tail below drops P, prunes sparse feature columns, and writes the file.
+    n_bins = min_samples = None
+    base_dir = "data/sampled_p" if sample_p else "data/sampled"
+
     if distribution == "uninformed":
         if sample_size is None:
             sample_size = len(significant)
         sampled_non_significant = non_significant.sample(n=sample_size, random_state=42)
         df = pd.concat([significant, sampled_non_significant], ignore_index=True)
-        df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
-        # save as txt file
         output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        df.to_csv(output_path, sep="\t", index=False)
-        print(f"Saved sampled data with uninformed distribution at {output_path} \n ")
     elif distribution == "uniform":
         n_significant = len(significant)
-        max_bins = max_bins        
         n_bins = min(max_bins, n_significant)  # ensure we don't have more bins than samples
         non_significant["Z_bin"] = pd.cut(
             non_significant["Z"],
@@ -345,47 +417,41 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
         sampled_non_significant = non_significant.groupby("Z_bin").apply(
             lambda x: x.sample(n=min_samples, replace=True) if len(x) >= min_samples else x
         ).reset_index(drop=True)
-        # remove Z_bin column
-        #sampled_non_significant.drop(columns=["Z_bin"], inplace=True)
         df = pd.concat([significant, sampled_non_significant], ignore_index=True)
-        df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
-        # save as txt file
         output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, sep="\t", index=False)
-        print(f"Saved sampled data with uniform distribution at {output_path} \n ")
     elif distribution == "low_high":
-        # sort non significant by P value in ascending order
-        non_significant = non_significant.sort_values(by="P", ascending=False)  # Replace 'P' with your actual p-value column name
-        
-        # take as many non-significant samples as significant samples, 
+        non_significant = non_significant.sort_values(by="P", ascending=False)
         non_significant_sampled = non_significant.head(len(significant))
         df = pd.concat([significant, non_significant_sampled], ignore_index=True)
-        df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
-        # save as txt file
-        if sample_p:
-            output_path = Path(f"data/sampled_p/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        else:
-            output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        # make sure output directory exists
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, sep="\t", index=False)
-        print(f"Saved sampled data with low_high distribution at {output_path} \n ")
+        output_path = Path(f"{base_dir}/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
     elif distribution == "low":
-        # just save the significant samples
         df = significant.copy()
-        df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
-        # save as txt file
-        if sample_p:
-            output_path = Path(f"data/sampled_p/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        else:
-            output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        # make sure output directory exists
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, sep="\t", index=False)
-        print(f"Saved sampled data with low distribution at {output_path} \n ")
+        output_path = Path(f"{base_dir}/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
     else:
         raise ValueError(f"Unsupported distribution: {distribution}")
+
+    # Drop the p-value column (no longer needed for modelling).
+    if "P" in df.columns:
+        df = df.drop(columns=["P"])
+
+    # ── Optional feature-column pruning by missingness ────────────────────────
+    # min_complete_frac (auto-pick densest features to hit a complete-row target)
+    # takes precedence over max_col_missing (drop columns over a null-rate floor).
+    col_filter_stats = None
+    if min_complete_frac is not None:
+        df, col_filter_stats = pick_densest_features(df, float(min_complete_frac))
+        print(f"  column filter (min_complete_frac={min_complete_frac}): kept "
+              f"{col_filter_stats['n_features_kept']}/{col_filter_stats['n_features_before']} "
+              f"features -> {col_filter_stats['achieved_complete_frac']:.1%} of rows complete")
+    elif max_col_missing is not None:
+        df, col_filter_stats = filter_columns_by_missing(df, float(max_col_missing))
+        print(f"  column filter (max_col_missing={max_col_missing}): kept "
+              f"{col_filter_stats['n_features_kept']}/{col_filter_stats['n_features_before']} "
+              f"features ({col_filter_stats['n_features_dropped']} dropped)")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, sep="\t", index=False)
+    print(f"Saved sampled data with {distribution} distribution at {output_path} \n ")
 
     # construct output dictionary with metadata
     output = {
@@ -395,8 +461,9 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
         "sample_size": len(df),
         "num_significant": len(significant),
         "num_non_significant": len(non_significant),
-        "num_bins": n_bins if distribution == "uniform" else None,
-        "min_samples_per_bin": min_samples if distribution == "uniform" else None,
+        "num_bins": n_bins,
+        "min_samples_per_bin": min_samples,
+        "column_filter": col_filter_stats,
         "output_path": str(output_path),
     }
 
