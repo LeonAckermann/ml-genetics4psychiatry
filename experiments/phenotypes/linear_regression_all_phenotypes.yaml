@@ -31,7 +31,14 @@ data:
   p_clump: [0.001]
   distribution: ["low"]
   target: Z
-  drop_missing: true   # drop rows with any null feature/target before training
+  # Feature-column pruning during sampling (drops sparse phenotype columns so the
+  # complete-case matrix keeps rows). Use ONE of the following:
+  #   min_complete_frac: auto-pick the densest features so that >= this fraction
+  #                      of rows stay complete (takes precedence if both set).
+  #   max_col_missing:   drop any feature column whose null-rate exceeds this.
+  min_complete_frac: 0.95
+  # max_col_missing: 0.05
+  drop_missing: true   # then drop the residual rows with any null before training
   test_size: 0.2
   n_splits: 5
   save_splits: true
