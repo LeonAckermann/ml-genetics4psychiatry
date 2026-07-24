@@ -405,6 +405,7 @@ def main() -> None:
                 clumps_path=data_cfg.get("clumps_path"),
                 max_col_missing=data_cfg.get("max_col_missing"),
                 min_complete_frac=data_cfg.get("min_complete_frac"),
+                use_parquet=data_cfg.get("use_parquet", True),
             )
             output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
         else:

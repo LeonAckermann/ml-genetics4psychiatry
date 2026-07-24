@@ -405,7 +405,12 @@ def included_phenotype_columns(gwas_pheno_path, info_csv_path) -> list[str]:
     """(Consortium, Outcome) pairs marked include=1 in info.csv that are also
     present as columns in the joined gwas_pheno matrix, as ``<Consortium>_<Outcome>``."""
     gwas_pheno_path = Path(gwas_pheno_path).expanduser().resolve()
-    header = pl.read_csv(gwas_pheno_path, separator="\t", n_rows=0).columns
+    # We only need the column names, not the data. Reading every column as a
+    # string (infer_schema_length=0) avoids polars trying to parse the "Null"
+    # string sentinel in float columns while inferring the schema.
+    header = pl.read_csv(
+        gwas_pheno_path, separator="\t", n_rows=0, infer_schema_length=0
+    ).columns
 
     phenotypes = [f"{c}_{o}" for c, o in _included_phenotypes(Path(info_csv_path))]
     return [p for p in phenotypes if p in header]
