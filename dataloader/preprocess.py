@@ -247,12 +247,52 @@ def preprocess(df, target, testsize, seed=42, binary=False, p_value_binary=0.05)
     X_test = scaler.transform(X_test)
     return X_train, y_train, X_test, y_test
 
+# Missing-cell tokens in the joined gwas_pheno matrix (see pipeline.py).
+_MATRIX_NULL_VALS = ["Null", ".", "NA", "N/A", "NaN", "nan", "NULL", "null", ""]
+
+
+def ensure_matrix_parquet(gwas_pheno_path, null_vals=_MATRIX_NULL_VALS, verbose=True):
+    """Return a Parquet twin of the joined gwas_pheno matrix, building it once
+    (streamed, low memory) if missing or older than the source .txt.
+
+    The text matrix is re-read once per phenotype target; parsing ~8M x ~193
+    text cells every time dominates sampling runtime. Parquet is columnar and
+    already typed, so subsequent per-phenotype reads skip text parsing entirely.
+    Returns ``None`` on any failure (e.g. out of disk) so callers fall back to
+    the .txt path unchanged.
+    """
+    txt_path = Path(gwas_pheno_path).expanduser().resolve()
+    pq_path = txt_path.with_suffix(".parquet")
+    tmp_path = txt_path.with_suffix(".parquet.tmp")
+    try:
+        if pq_path.exists() and pq_path.stat().st_mtime >= txt_path.stat().st_mtime:
+            return pq_path
+        if verbose:
+            print(f"Building Parquet cache {pq_path.name} from {txt_path.name} "
+                  f"(one-time; makes every per-phenotype read fast)...")
+        (pl.scan_csv(str(txt_path), separator="\t", null_values=null_vals)
+           .sink_parquet(str(tmp_path)))
+        tmp_path.replace(pq_path)
+        if verbose:
+            print(f"  wrote {pq_path} ({pq_path.stat().st_size / 1e9:.2f} GB)")
+        return pq_path
+    except Exception as e:
+        print(f"  (Parquet cache unavailable, falling back to CSV parsing: {e})")
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
+        return None
+
+
 def load_phenotype_clumped_data(
     phenotype: str,
     gwas_pheno_path,
     clumps_path=None,
     chunk_size: int = 100000,
     total_chunks: Optional[int] = None,
+    use_parquet: bool = True,
 ) -> pd.DataFrame:
     """Build a phenotype-prediction dataset directly from clumps + the raw
     gwas_pheno Z-score matrix, without a precomputed 'final' file.
@@ -273,14 +313,15 @@ def load_phenotype_clumped_data(
     df_clumped = df_clumped[["ID", "P"]]
 
     clumped_ids = df_clumped["ID"].tolist()
-    # "Null" is the missing-cell token construct_gwas_phenotype writes; declare
-    # it (and friends) so polars parses the Z-score columns as f64.
-    null_vals = ["Null", ".", "NA", "N/A", "NaN", "nan", "NULL", "null", ""]
-    df_pheno = (
-        pl.scan_csv(str(gwas_pheno_path), separator="\t", null_values=null_vals)
-        .filter(pl.col("ID").is_in(clumped_ids))
-        .collect()
-    )
+    # Prefer a Parquet twin of the matrix (typed/columnar -> no text re-parsing);
+    # fall back to scanning the .txt (declaring "Null" etc. as null tokens).
+    pq_path = ensure_matrix_parquet(gwas_pheno_path) if use_parquet else None
+    if pq_path is not None:
+        lf = pl.scan_parquet(str(pq_path))
+    else:
+        lf = pl.scan_csv(str(gwas_pheno_path), separator="\t",
+                         null_values=_MATRIX_NULL_VALS)
+    df_pheno = lf.filter(pl.col("ID").is_in(clumped_ids)).collect()
     drop_cols = [c for c in ["chrom", "pos", "A0", "A1"] if c in df_pheno.columns]
     df_pheno = df_pheno.drop(drop_cols)
 
@@ -362,12 +403,12 @@ def pick_densest_features(df, min_complete_frac, protect=_COL_FILTER_PROTECT):
     return df[keep_cols], stats
 
 
-def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False, gwas_pheno_path=None, clumps_path=None, max_col_missing=None, min_complete_frac=None):
+def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False, gwas_pheno_path=None, clumps_path=None, max_col_missing=None, min_complete_frac=None, use_parquet=True):
 
     if gwas_pheno_path is not None:
         df = load_phenotype_clumped_data(
             illness, gwas_pheno_path, clumps_path=clumps_path,
-            chunk_size=chunk_size, total_chunks=total_chunks,
+            chunk_size=chunk_size, total_chunks=total_chunks, use_parquet=use_parquet,
         )
     else:
         if data_path is None:
