@@ -27,7 +27,7 @@ from dataloader.pipeline import (
     prepare_phenotype_clump_input,
     select_dense_features,
 )
-from dataloader.preprocess import sample
+from dataloader.preprocess import drop_target_correlated_features, sample
 from src import get_default_search_space, nested_cv
 
 
@@ -54,6 +54,7 @@ class NumpyEncoder(json.JSONEncoder):
 #   linear      → linear_regression      / logistic_regression
 #   lasso       → lasso_regression       / lasso_logistic_regression
 #   ridge       → ridge_regression       / ridge_logistic_regression
+#   bayesian_ridge → bayesian_ridge_regression  (regression only)
 #   xgboost     → xgboost               (same for both task types)
 #   residual_dnn→ residual_dnn           (same for both task types)
 #   tabpfn      → tabpfn                 (same for both task types)
@@ -67,6 +68,10 @@ _MODEL_NAME_MAP: dict[tuple[str, str], str] = {
     ("lasso",  "binary_classification"): "lasso_logistic_regression",
     ("ridge",  "regression"):            "ridge_regression",
     ("ridge",  "binary_classification"): "ridge_logistic_regression",
+    # Regression-only. The binary entry maps to the same name so build_model
+    # can raise a specific error instead of a bare "Unknown model".
+    ("bayesian_ridge", "regression"):            "bayesian_ridge_regression",
+    ("bayesian_ridge", "binary_classification"): "bayesian_ridge_regression",
 }
 
 
@@ -405,6 +410,7 @@ def main() -> None:
                 clumps_path=data_cfg.get("clumps_path"),
                 max_col_missing=data_cfg.get("max_col_missing"),
                 min_complete_frac=data_cfg.get("min_complete_frac"),
+                max_target_corr=data_cfg.get("max_target_corr", 0.8),
                 use_parquet=data_cfg.get("use_parquet", True),
             )
             output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
@@ -415,6 +421,16 @@ def main() -> None:
                     f"Sampled data not found at {data_path}. "
                     "Run with sampling: true first."
                 )
+            # The feature-pruning knobs all live inside sample(); with sampling
+            # off they are silently inert and the pre-existing sampled file is
+            # used as-is (whatever pruning it was written with). Say so, rather
+            # than letting the config look like it applied.
+            inert = [k for k in ("max_target_corr", "min_complete_frac", "max_col_missing")
+                     if data_cfg.get(k) is not None]
+            if inert:
+                print(f"  NOTE: sampling is off — {', '.join(inert)} not applied; "
+                      f"reusing {data_path} as written. Set data.sampling: true "
+                      f"to recompute (and to report target correlations).")
 
         # ── Load data ─────────────────────────────────────────────────────────
         df = load_illness_data(
@@ -437,8 +453,27 @@ def main() -> None:
 
         df_pandas = df.to_pandas() if hasattr(df, "to_pandas") else df
 
+        # ── Marginal correlation with the target ──────────────────────────────
+        # Applied to whatever matrix is about to be trained on, so it also
+        # covers sampling: false (sampled files on disk predate this filter).
+        # Before drop_missing: correlations use every pairwise-complete row, and
+        # dropping a sparse feature here saves the rows it would have cost.
+        # When sampling ran, this is a no-op re-check — the report then simply
+        # describes the final training matrix.
+        target_corr_stats = None
+        max_target_corr = data_cfg.get("max_target_corr", 0.8)
+        if max_target_corr is not None:
+            df_pandas, target_corr_stats = drop_target_correlated_features(
+                df_pandas, float(max_target_corr), target=data_cfg["target"],
+            )
+            print(f"  target correlation (max_target_corr={max_target_corr}): kept "
+                  f"{target_corr_stats['n_features_kept']}/{target_corr_stats['n_features_before']} "
+                  f"features ({target_corr_stats['n_features_dropped']} dropped"
+                  + (f": {', '.join(target_corr_stats['dropped_columns'])}"
+                     if target_corr_stats["dropped_columns"] else "") + ")")
+
         # ── Optional: drop rows with any missing value (complete-case matrix) ──
-        # Feature columns (other phenotypes) can be null at a phenotype's clumped
+        # Feature columns (other phenotypes) can be null at a phenotype's selec
         # SNPs; enable data.drop_missing to train on a fully non-null matrix.
         drop_missing_stats = None
         if data_cfg.get("drop_missing", False):
@@ -537,6 +572,8 @@ def main() -> None:
             search_space=hpo_cfg.get("search_space"),
             best_params_list=best_params_for_eval,
             experiment_name=experiment_name,
+            feature_names=list(X.columns),
+            results_dir=results_dir,
         )
 
         output.update({
@@ -544,6 +581,7 @@ def main() -> None:
             "noise_sigma": noise_sigma,
             "rand_frac": rand_frac,
             "pca": pca_var,
+            "target_correlation": target_corr_stats,
             "drop_missing": drop_missing_stats,
             "selected_features": selected_features,
             "config": iter_cfg,

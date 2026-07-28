@@ -54,17 +54,17 @@ model:
 
 hpo:
   run: true
-  n_trials: 30
+  n_trials: 1
   outer_cv: 5
-  inner_cv: 5
+  inner_cv: 3
   search_space:
     hidden_dim: [32, 128]
     n_layers: [1, 8]
     dropout: [0.1, 0.8]
-    learning_rate: [1e-6, 1e-2]
+    learning_rate: [1.0e-6, 1.0e-2]    
     weight_decay: [0.0, 0.0001]
     batch_size: [16, 64]
-    epochs: [20, 60]
+    epochs: [20, 100]
     patience: [5, 20]
 
 load_best_params: false
@@ -72,3 +72,18 @@ load_best_params: false
 evaluation:
   metrics: [r2, mse, pearson_r2]
   binary_threshold: null
+
+# Per-epoch train/test metrics on the OUTER fold (loss + accuracy for
+# classification, loss + R² for regression), recorded for every outer fold and
+# written to the result JSON under hpo.training_curves.
+#   enabled: record the curves. Costs one extra eval pass over the outer train
+#            and test splits per epoch; only affects epoch-based models
+#            (residual_dnn, dnn, mdn) — sklearn/XGBoost/TabPFN have no epochs.
+#   plots:   also render them to results/<experiment>/training/ —
+#            fold_<k>.png per fold plus all_folds.png.
+# The test curve is diagnostic only: early stopping and best-weight selection
+# still use the separate validation split, so nothing leaks into training.
+training_curves:
+  enabled: true
+  plots: true
+  dir: training
