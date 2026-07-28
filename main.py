@@ -572,6 +572,8 @@ def main() -> None:
             search_space=hpo_cfg.get("search_space"),
             best_params_list=best_params_for_eval,
             experiment_name=experiment_name,
+            feature_names=list(X.columns),
+            results_dir=results_dir,
         )
 
         output.update({

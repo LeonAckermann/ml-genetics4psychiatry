@@ -23,7 +23,7 @@ data:
   # illness blank -> auto-detected. With min_density set, the phenotype list is
   # taken from the density-frontier JSON (the same features used for clumping)
   # instead of info_csv_path; unset min_density to fall back to info.csv.
-  illness: []
+  illness: ["BCT_BASO"]
   min_density: 0.8
   density_json: "./data/pipeline/analysis/dense_density.json"
   gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
@@ -73,3 +73,14 @@ load_best_params: false
 evaluation:
   metrics: [r2, mse, pearson_r2]
   binary_threshold: null
+
+# Per-boosting-round train/test metrics on the OUTER fold, written to the result
+# JSON under hpo.training_curves and rendered to results/<experiment>/training/.
+# For XGBoost the step is a boosting round rather than an epoch; loss is rmse
+# (logloss for classification) and the score is R² (accuracy for classification).
+# The outer train and test splits are added as extra eval sets — validation stays
+# validation_0, so early stopping keeps selecting on the val split, not the test.
+training_curves:
+  enabled: true
+  plots: true
+  dir: training
