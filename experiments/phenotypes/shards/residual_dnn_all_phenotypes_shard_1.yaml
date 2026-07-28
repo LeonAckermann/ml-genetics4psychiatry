@@ -1,0 +1,101 @@
+construct_gwas_mri:
+  run: false
+gwas_phenotype_construction:
+  run: false
+phenotype_clumping:
+  run: false
+plink2:
+  prepare: false
+data:
+  illness:
+  - FOLKERSENL_HGF
+  - FOLKERSENL_IL16
+  - FOLKERSENL_IL18
+  - FOLKERSENL_IL1RA
+  - FOLKERSENL_IL6
+  - FOLKERSENL_IL6R
+  - FOLKERSENL_MCSF
+  - FOLKERSENL_PDGFB
+  - FOLKERSENL_SCF
+  - FOLKERSENL_TRAIL
+  - FOLKERSENL_VEGF
+  - FORSTNERAJ_PD
+  - GBMI-NO-UKBB_APPENDECTOMY
+  - GBMI_AAA
+  - GBMI_AC-APP
+  - GBMI_ASTHMA
+  - GBMI_COPD
+  - GBMI_GOUT
+  - GBMI_HCM
+  - GBMI_HF
+  - GBMI_IPF
+  - GBMI_POAG
+  - GBMI_STROKE
+  - GBMI_THYROID-CANCER
+  - GBMI_VTE
+  density_json: ./data/pipeline/analysis/dense_density.json
+  gwas_pheno_path: ./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt
+  info_csv_path: ./data/pipeline/input/gwas_pheno/info.csv
+  p_clump:
+  - 0.001
+  distribution:
+  - low
+  target: Z
+  drop_missing: true
+  test_size: 0.2
+  n_splits: 5
+  save_splits: true
+  polars: true
+  chunk_size: 100000
+  row_ratio:
+  - 1.0
+  col_ratio:
+  - 1.0
+  top_rows: true
+  top_cols: true
+  sampling: false
+  invert: true
+experiment:
+  run: true
+model:
+  name: residual_dnn
+  type:
+  - regression
+  p_value_binary: 0.0001
+hpo:
+  run: true
+  n_trials: 30
+  outer_cv: 5
+  inner_cv: 5
+  search_space:
+    hidden_dim:
+    - 32
+    - 128
+    n_layers:
+    - 1
+    - 8
+    dropout:
+    - 0.1
+    - 0.8
+    learning_rate:
+    - 1e-6
+    - 1e-2
+    weight_decay:
+    - 0.0
+    - 0.0001
+    batch_size:
+    - 16
+    - 64
+    epochs:
+    - 20
+    - 60
+    patience:
+    - 5
+    - 20
+load_best_params: false
+evaluation:
+  metrics:
+  - r2
+  - mse
+  - pearson_r2
+  binary_threshold: null

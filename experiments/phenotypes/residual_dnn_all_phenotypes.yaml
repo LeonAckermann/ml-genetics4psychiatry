@@ -43,6 +43,7 @@ data:
   top_rows: true
   top_cols: true
   sampling: false
+  invert: true
 
 experiment:
   run: true

@@ -41,7 +41,8 @@ data:
   col_ratio: [1.0]
   top_rows: true
   top_cols: true
-  sampling: true
+  sampling: false
+  invert: true
 
 experiment:
   run: true

@@ -1,0 +1,101 @@
+construct_gwas_mri:
+  run: false
+gwas_phenotype_construction:
+  run: false
+phenotype_clumping:
+  run: false
+plink2:
+  prepare: false
+data:
+  illness:
+  - ISGEC_DIURNAL-IN
+  - ISGEC_MORNING
+  - ISGEC_SLEEP-EFF
+  - ISGEC_SLEEP-EP
+  - ISGEC_SLEEP-L5
+  - ISGEC_SLEEP-M10
+  - ISGEC_SLEEP-MEAN
+  - ISGEC_SLEEP-MID
+  - ISGEC_SLEEP-SD
+  - JANSENIE_AZ
+  - JANSENPR_BRAIN-VOL
+  - JOHNSONEC_CUD
+  - KEATONJM_DBP
+  - KEATONJM_PP
+  - KEATONJM_SBP
+  - KIDNEY_EGFR-CREA
+  - KIDNEY_EGFR-CYS
+  - LEICESTER_COUGHANDPHLEGM
+  - LOOS_BEATSTMN
+  - MAGIC_2HGLU-ADJBMI
+  - MAGIC_FAST-GLUCOSE1
+  - MAGIC_FAST-GLUCOSE2
+  - MAGIC_FAST-INSULIN1
+  - MAGIC_FPI
+  - MAGIC_GLUCOSE-TOLERANCE
+  density_json: ./data/pipeline/analysis/dense_density.json
+  gwas_pheno_path: ./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt
+  info_csv_path: ./data/pipeline/input/gwas_pheno/info.csv
+  p_clump:
+  - 0.001
+  distribution:
+  - low
+  target: Z
+  drop_missing: true
+  test_size: 0.2
+  n_splits: 5
+  save_splits: true
+  polars: true
+  chunk_size: 100000
+  row_ratio:
+  - 1.0
+  col_ratio:
+  - 1.0
+  top_rows: true
+  top_cols: true
+  sampling: false
+  invert: true
+experiment:
+  run: true
+model:
+  name: residual_dnn
+  type:
+  - regression
+  p_value_binary: 0.0001
+hpo:
+  run: true
+  n_trials: 30
+  outer_cv: 5
+  inner_cv: 5
+  search_space:
+    hidden_dim:
+    - 32
+    - 128
+    n_layers:
+    - 1
+    - 8
+    dropout:
+    - 0.1
+    - 0.8
+    learning_rate:
+    - 1e-6
+    - 1e-2
+    weight_decay:
+    - 0.0
+    - 0.0001
+    batch_size:
+    - 16
+    - 64
+    epochs:
+    - 20
+    - 60
+    patience:
+    - 5
+    - 20
+load_best_params: false
+evaluation:
+  metrics:
+  - r2
+  - mse
+  - pearson_r2
+  binary_threshold: null

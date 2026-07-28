@@ -43,7 +43,7 @@ data:
   top_rows: true
   top_cols: true
   sampling: false
-  invert: true
+  pca: [0.99]
 
 experiment:
   run: true

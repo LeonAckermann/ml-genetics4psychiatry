@@ -1,8 +1,7 @@
-# Experiment: TabPFN with HPO for every density-selected phenotype.
+# Experiment: Lasso regression with HPO for every density-selected phenotype.
 # Mirrors ../pipeline/linear_regression_all_phenotypes.yaml (density-selected
 # feature list, drop_missing, per-phenotype clumped-SNP sampling) but runs
-# tabpfn with the HPO setup from ../hpo/tabpfn_hpo_regression.yaml (TabPFN has
-# no search space, so HPO is just the outer CV evaluation).
+# lasso with the HPO search space from ../hpo/lasso_hpo_regression.yaml.
 #
 # For each phenotype: predicts its own Z-score from every other phenotype
 # column, restricted to its own clumped SNPs (output/clumped_<phenotype>.clumps)
@@ -43,23 +42,24 @@ data:
   top_rows: true
   top_cols: true
   sampling: false
-  invert: true
+  pca: [0.99]
+
 
 experiment:
   run: true
 
 model:
-  name: tabpfn
+  name: lasso
   type: ["regression"]
   p_value_binary: 0.0001
-  finetune: false
-  device: mps
-  epochs: 30
-  learning_rate: 1e-5
 
 hpo:
   run: true
+  n_trials: 5
   outer_cv: 5
+  inner_cv: 5
+  search_space:
+    alpha: [0.00001, 10000]
 
 evaluation:
   metrics: [r2, mse, pearson_r2]

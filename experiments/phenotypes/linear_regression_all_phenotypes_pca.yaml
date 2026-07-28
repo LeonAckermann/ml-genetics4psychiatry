@@ -1,12 +1,11 @@
-# Experiment: TabPFN with HPO for every density-selected phenotype.
-# Mirrors ../pipeline/linear_regression_all_phenotypes.yaml (density-selected
-# feature list, drop_missing, per-phenotype clumped-SNP sampling) but runs
-# tabpfn with the HPO setup from ../hpo/tabpfn_hpo_regression.yaml (TabPFN has
-# no search space, so HPO is just the outer CV evaluation).
+# Experiment: simple Linear Regression run for every include=1 phenotype
+# from info.csv that's present in all_z_scores_imputed.txt (currently
+# BCT_BASO and BCT_EO). Leaving data.illness blank makes main.py
+# auto-detect the phenotype list instead of enumerating it by hand.
 #
 # For each phenotype: predicts its own Z-score from every other phenotype
 # column, restricted to its own clumped SNPs (output/clumped_<phenotype>.clumps)
-# under p_clump, dropping rows with any missing value before training.
+# under p_clump.
 
 construct_gwas_mri:
   run: false
@@ -32,7 +31,14 @@ data:
   p_clump: [0.001]
   distribution: ["low"]
   target: Z
-  drop_missing: true   # drop rows with any null feature/target before training
+  # Feature-column pruning during sampling (drops sparse phenotype columns so the
+  # complete-case matrix keeps rows). Use ONE of the following:
+  #   min_complete_frac: auto-pick the densest features so that >= this fraction
+  #                      of rows stay complete (takes precedence if both set).
+  #   max_col_missing:   drop any feature column whose null-rate exceeds this.
+  min_complete_frac: 0.95
+  # max_col_missing: 0.05
+  drop_missing: true   # then drop the residual rows with any null before training
   test_size: 0.2
   n_splits: 5
   save_splits: true
@@ -43,23 +49,18 @@ data:
   top_rows: true
   top_cols: true
   sampling: false
-  invert: true
+  pca: [0.99]
+
 
 experiment:
   run: true
 
 model:
-  name: tabpfn
+  name: linear_regression
   type: ["regression"]
-  p_value_binary: 0.0001
-  finetune: false
-  device: mps
-  epochs: 30
-  learning_rate: 1e-5
 
 hpo:
-  run: true
-  outer_cv: 5
+  run: false
 
 evaluation:
   metrics: [r2, mse, pearson_r2]
