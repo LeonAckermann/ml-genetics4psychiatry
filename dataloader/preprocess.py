@@ -357,6 +357,75 @@ def filter_columns_by_missing(df, threshold, protect=_COL_FILTER_PROTECT):
     return df[keep_cols], stats
 
 
+def target_correlations(df, target="Z", protect=_COL_FILTER_PROTECT):
+    """Marginal Pearson correlation of every feature column with the target.
+
+    Computed on pairwise-complete rows (features still carry nulls at this
+    point in the pipeline), so each feature uses whatever rows it and the
+    target both have. Returns ``(names, r, n)`` where ``r`` is NaN for any
+    feature with fewer than 3 shared rows or zero variance on them.
+    """
+    protect = tuple(protect) + (target,)   # never let the target rate itself
+    feat_cols = [c for c in df.columns if c not in protect]
+    if target not in df.columns or not feat_cols:
+        return feat_cols, np.full(len(feat_cols), np.nan), np.zeros(len(feat_cols), dtype=int)
+
+    y_all = pd.to_numeric(df[target], errors="coerce").to_numpy(dtype=np.float64)
+    rows = np.isfinite(y_all)
+    y = y_all[rows]
+    X = df.loc[rows, feat_cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=np.float64)
+
+    M = np.isfinite(X)                       # (R, F) pairwise-complete mask
+    Xf = np.where(M, X, 0.0)
+    n = M.sum(axis=0).astype(np.float64)     # shared rows per feature
+    sx, sxx = Xf.sum(axis=0), (Xf * Xf).sum(axis=0)
+    sy, syy = M.T @ y, M.T @ (y * y)         # y sums over each feature's own rows
+    sxy = Xf.T @ y
+
+    cov = n * sxy - sx * sy
+    var = (n * sxx - sx * sx) * (n * syy - sy * sy)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        r = np.where(var > 0, cov / np.sqrt(var), np.nan)
+    r[n < 3] = np.nan
+    return feat_cols, r, n.astype(np.int64)
+
+
+def drop_target_correlated_features(df, max_abs_corr, target="Z",
+                                    protect=_COL_FILTER_PROTECT):
+    """Drop feature columns whose |marginal correlation| with the target exceeds
+    ``max_abs_corr``, and report every feature's correlation.
+
+    Runs before the densest-submatrix selection so a near-duplicate of the
+    target can never anchor the feature set. Features whose correlation is
+    undefined (too few shared rows, or constant) are kept. Returns
+    ``(filtered_df, stats)``; ``stats["correlations"]`` holds the full
+    per-feature report, sorted by descending |r|.
+    """
+    feat_cols, r, n = target_correlations(df, target=target, protect=protect)
+    dropped = [c for c, ri in zip(feat_cols, r) if np.isfinite(ri) and abs(ri) > max_abs_corr]
+    keep_cols = [c for c in df.columns if c not in dropped]
+
+    order = np.argsort(-np.nan_to_num(np.abs(r), nan=-1.0), kind="stable")
+    stats = {
+        "strategy": "max_target_corr",
+        "threshold": max_abs_corr,
+        "target": target,
+        "method": "pearson_pairwise_complete",
+        "n_features_before": len(feat_cols),
+        "n_features_kept": len(feat_cols) - len(dropped),
+        "n_features_dropped": len(dropped),
+        "dropped_columns": dropped,
+        "correlations": [
+            {"feature": feat_cols[i],
+             "pearson_r": float(r[i]) if np.isfinite(r[i]) else None,
+             "n_complete": int(n[i]),
+             "dropped": feat_cols[i] in dropped}
+            for i in order
+        ],
+    }
+    return df[keep_cols], stats
+
+
 def pick_densest_features(df, min_complete_frac, protect=_COL_FILTER_PROTECT):
     """Pick the largest set of densest feature columns such that the fraction of
     rows complete (non-null across every kept feature) stays >= ``min_complete_frac``.
@@ -403,7 +472,7 @@ def pick_densest_features(df, min_complete_frac, protect=_COL_FILTER_PROTECT):
     return df[keep_cols], stats
 
 
-def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False, gwas_pheno_path=None, clumps_path=None, max_col_missing=None, min_complete_frac=None, use_parquet=True):
+def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False, gwas_pheno_path=None, clumps_path=None, max_col_missing=None, min_complete_frac=None, use_parquet=True, max_target_corr=0.8):
 
     if gwas_pheno_path is not None:
         df = load_phenotype_clumped_data(
@@ -475,6 +544,20 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
     if "P" in df.columns:
         df = df.drop(columns=["P"])
 
+    # ── Marginal correlation with the target ──────────────────────────────────
+    # Reported for every feature, and features too close to the target are
+    # dropped here — before the densest-submatrix selection below, so a
+    # near-duplicate of the target can't shape the kept feature set.
+    target_corr_stats = None
+    if max_target_corr is not None:
+        df, target_corr_stats = drop_target_correlated_features(
+            df, float(max_target_corr), target="Z")
+        print(f"  target correlation (max_target_corr={max_target_corr}): kept "
+              f"{target_corr_stats['n_features_kept']}/{target_corr_stats['n_features_before']} "
+              f"features ({target_corr_stats['n_features_dropped']} dropped"
+              + (f": {', '.join(target_corr_stats['dropped_columns'])}"
+                 if target_corr_stats["dropped_columns"] else "") + ")")
+
     # ── Optional feature-column pruning by missingness ────────────────────────
     # min_complete_frac (auto-pick densest features to hit a complete-row target)
     # takes precedence over max_col_missing (drop columns over a null-rate floor).
@@ -504,6 +587,7 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
         "num_non_significant": len(non_significant),
         "num_bins": n_bins,
         "min_samples_per_bin": min_samples,
+        "target_correlation": target_corr_stats,
         "column_filter": col_filter_stats,
         "output_path": str(output_path),
     }
