@@ -151,6 +151,81 @@ def _build_explanation(fitted_model, model_name, task_type, X_background, X_test
 
 
 # ---------------------------------------------------------------------------
+# Numeric summaries
+# ---------------------------------------------------------------------------
+
+def _values_2d(sv) -> np.ndarray:
+    """Explanation values as a plain (n_test, n_features) float array.
+
+    Binary-classification explainers can return (n_test, n_features, n_classes);
+    keep the positive class so every model family reduces to the same shape.
+    """
+    values = np.asarray(sv.values, dtype=np.float64)
+    if values.ndim == 3:
+        values = values[..., -1]
+    return values
+
+
+def summarize_fold_shap(sv, feature_names, fold: int) -> dict:
+    """Per-feature mean SHAP for one fold's test set.
+
+    ``mean_abs_shap`` is the usual importance magnitude; ``mean_shap`` keeps the
+    sign, so a feature that consistently pushes predictions down stays negative
+    instead of cancelling against one that pushes up.
+    """
+    values = _values_2d(sv)
+    return {
+        "fold": fold + 1,
+        "n_test": int(values.shape[0]),
+        "features": [str(f) for f in feature_names],
+        "mean_abs_shap": np.abs(values).mean(axis=0).tolist(),
+        "mean_shap": values.mean(axis=0).tolist(),
+    }
+
+
+def aggregate_fold_shap(fold_summaries: list[dict]) -> dict | None:
+    """Average per-fold mean SHAP values into one per-feature record.
+
+    Each fold contributes equally (mean of the fold means, not pooled over test
+    rows), so an uneven final fold cannot dominate. ``std_*`` is the spread of
+    that feature's value across folds — read it as the stability of the
+    importance, not as a standard error. Features are ranked by
+    ``mean_abs_shap`` descending. Returns ``None`` if no fold produced values.
+    """
+    folds = [f for f in fold_summaries if f]
+    if not folds:
+        return None
+
+    names = folds[0]["features"]
+    mismatched = [f["fold"] for f in folds if f["features"] != names]
+    if mismatched:
+        print(f"  SHAP aggregation skipped: feature names differ in fold(s) {mismatched}")
+        return None
+
+    mean_abs = np.array([f["mean_abs_shap"] for f in folds], dtype=np.float64)  # (folds, F)
+    mean_signed = np.array([f["mean_shap"] for f in folds], dtype=np.float64)
+    order = np.argsort(-mean_abs.mean(axis=0), kind="stable")
+
+    return {
+        "n_folds": len(folds),
+        "folds_included": [f["fold"] for f in folds],
+        "n_test_per_fold": [f["n_test"] for f in folds],
+        "aggregation": "mean over folds of each fold's mean over test rows",
+        "features": [
+            {
+                "feature": names[i],
+                "mean_abs_shap": float(mean_abs[:, i].mean()),
+                "std_abs_shap": float(mean_abs[:, i].std(ddof=0)),
+                "mean_shap": float(mean_signed[:, i].mean()),
+                "std_shap": float(mean_signed[:, i].std(ddof=0)),
+                "per_fold_mean_abs_shap": mean_abs[:, i].tolist(),
+            }
+            for i in order
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Plot generation
 # ---------------------------------------------------------------------------
 
@@ -239,21 +314,41 @@ def explain_fold(
     experiment_name: str,
     shap_cfg: dict,
     results_dir: Path,
-) -> None:
+) -> dict:
     """Compute SHAP values for one outer fold's test set and save all requested plots.
 
     X_background is the fold's (already scaled/PCA'd/noised) training data;
     X_test is the outer-fold test set the values are explained on.
+
+    Returns the fold's per-feature mean SHAP values (see ``summarize_fold_shap``)
+    so the caller can average them across folds into the results JSON. Set
+    ``shap.plots: false`` to compute those numbers without rendering any figure.
     """
-    out_dir = Path(results_dir) / "shap" / f"fold_{fold + 1}"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # Cost is per explained row — TabPFN's imputation explainer runs one
+    # explain() per row at `tabpfn_budget` model calls each. When only the
+    # per-feature means are wanted, a random subset of the test set estimates
+    # them at a fraction of the cost. Off by default (explain every row).
+    max_rows = shap_cfg.get("max_explain_rows")
+    if max_rows and len(X_test) > int(max_rows):
+        n_full = len(X_test)
+        X_test = _subsample(X_test, int(max_rows))
+        print(f"  [{experiment_name}] fold {fold + 1}: explaining a random "
+              f"{len(X_test)}/{n_full} test rows (shap.max_explain_rows)")
 
     sv = _build_explanation(
         fitted_model, model_name, task_type, X_background, X_test, feature_names, shap_cfg,
     )
+    summary = summarize_fold_shap(sv, feature_names, fold)
 
-    max_display = shap_cfg.get("max_display", 20)
     tag = f"[{experiment_name}] fold {fold + 1}"
+    if not shap_cfg.get("plots", True):
+        print(f"  {tag}: SHAP values computed for {summary['n_test']} test rows "
+              f"x {len(feature_names)} features (plots off)")
+        return summary
+
+    out_dir = Path(results_dir) / "shap" / f"fold_{fold + 1}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    max_display = shap_cfg.get("max_display", 20)
 
     plots = [
         ("summary", lambda: _save_summary_plot(sv, X_test, feature_names, max_display, out_dir)),
@@ -278,3 +373,4 @@ def explain_fold(
             print(f"  {tag}: SHAP {plot_name} plot failed: {e}")
 
     print(f"  {tag}: SHAP plots saved to {out_dir}")
+    return summary

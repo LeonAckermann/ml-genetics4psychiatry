@@ -74,3 +74,11 @@ hpo:
 evaluation:
   metrics: [r2, mse, pearson_r2]
   binary_threshold: null
+
+# Per-feature mean SHAP values, averaged over the outer folds, written to the
+# result JSON under hpo.shap_mean_values. plots: false skips every figure —
+# only the numbers are produced.
+shap:
+  enabled: true
+  plots: false
+  background_size: 100

@@ -20,7 +20,7 @@ from .evaluation import (
     report_fold_metrics,
 )
 from .hpo import NEEDS_SCALING, NEEDS_VAL_SPLIT, build_model, get_default_search_space, suggest_params
-from .shap_explain import explain_fold
+from .shap_explain import aggregate_fold_shap, explain_fold
 from .training import train, train_mdn
 
 
@@ -144,6 +144,7 @@ def nested_cv(
     fold_label_distributions: list[dict] = []
     fold_confidence_metrics: list[list[dict]] = []  # populated only for MDN
     fold_init_params: list[dict] = []               # populated only for MDN
+    fold_shap: list[dict] = []                      # populated only when shap.enabled
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -290,13 +291,13 @@ def nested_cv(
                     [f"PC{i + 1}" for i in range(X_train_final.shape[1])]
                     if pca is not None else feature_names
                 )
-                explain_fold(
+                fold_shap.append(explain_fold(
                     fitted_model, model_name, task_type,
                     X_background=X_train_final, X_test=X_test_outer,
                     feature_names=effective_names, fold=fold,
                     experiment_name=experiment_name, shap_cfg=shap_cfg,
                     results_dir=Path(results_dir) if results_dir else Path("./results") / experiment_name,
-                )
+                ))
             except Exception as e:
                 print(f"  [{experiment_name}] SHAP explanation failed for fold {fold + 1}: {e}")
 
@@ -314,6 +315,11 @@ def nested_cv(
         result["confidence_threshold_evaluation"] = aggregate_confidence_metrics(fold_confidence_metrics)
     if fold_init_params:
         result["fold_init_params"] = fold_init_params
+    if fold_shap:
+        # Per-feature mean SHAP averaged over the outer folds. Folds whose
+        # explanation raised are simply absent, so this reflects the folds that
+        # actually produced values.
+        result["shap_mean_values"] = aggregate_fold_shap(fold_shap)
     return result
 
 
