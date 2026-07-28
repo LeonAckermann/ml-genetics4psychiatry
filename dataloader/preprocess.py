@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
@@ -246,12 +247,52 @@ def preprocess(df, target, testsize, seed=42, binary=False, p_value_binary=0.05)
     X_test = scaler.transform(X_test)
     return X_train, y_train, X_test, y_test
 
+# Missing-cell tokens in the joined gwas_pheno matrix (see pipeline.py).
+_MATRIX_NULL_VALS = ["Null", ".", "NA", "N/A", "NaN", "nan", "NULL", "null", ""]
+
+
+def ensure_matrix_parquet(gwas_pheno_path, null_vals=_MATRIX_NULL_VALS, verbose=True):
+    """Return a Parquet twin of the joined gwas_pheno matrix, building it once
+    (streamed, low memory) if missing or older than the source .txt.
+
+    The text matrix is re-read once per phenotype target; parsing ~8M x ~193
+    text cells every time dominates sampling runtime. Parquet is columnar and
+    already typed, so subsequent per-phenotype reads skip text parsing entirely.
+    Returns ``None`` on any failure (e.g. out of disk) so callers fall back to
+    the .txt path unchanged.
+    """
+    txt_path = Path(gwas_pheno_path).expanduser().resolve()
+    pq_path = txt_path.with_suffix(".parquet")
+    tmp_path = txt_path.with_suffix(".parquet.tmp")
+    try:
+        if pq_path.exists() and pq_path.stat().st_mtime >= txt_path.stat().st_mtime:
+            return pq_path
+        if verbose:
+            print(f"Building Parquet cache {pq_path.name} from {txt_path.name} "
+                  f"(one-time; makes every per-phenotype read fast)...")
+        (pl.scan_csv(str(txt_path), separator="\t", null_values=null_vals)
+           .sink_parquet(str(tmp_path)))
+        tmp_path.replace(pq_path)
+        if verbose:
+            print(f"  wrote {pq_path} ({pq_path.stat().st_size / 1e9:.2f} GB)")
+        return pq_path
+    except Exception as e:
+        print(f"  (Parquet cache unavailable, falling back to CSV parsing: {e})")
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
+        return None
+
+
 def load_phenotype_clumped_data(
     phenotype: str,
     gwas_pheno_path,
     clumps_path=None,
     chunk_size: int = 100000,
     total_chunks: Optional[int] = None,
+    use_parquet: bool = True,
 ) -> pd.DataFrame:
     """Build a phenotype-prediction dataset directly from clumps + the raw
     gwas_pheno Z-score matrix, without a precomputed 'final' file.
@@ -272,11 +313,15 @@ def load_phenotype_clumped_data(
     df_clumped = df_clumped[["ID", "P"]]
 
     clumped_ids = df_clumped["ID"].tolist()
-    df_pheno = (
-        pl.scan_csv(str(gwas_pheno_path), separator="\t")
-        .filter(pl.col("ID").is_in(clumped_ids))
-        .collect()
-    )
+    # Prefer a Parquet twin of the matrix (typed/columnar -> no text re-parsing);
+    # fall back to scanning the .txt (declaring "Null" etc. as null tokens).
+    pq_path = ensure_matrix_parquet(gwas_pheno_path) if use_parquet else None
+    if pq_path is not None:
+        lf = pl.scan_parquet(str(pq_path))
+    else:
+        lf = pl.scan_csv(str(gwas_pheno_path), separator="\t",
+                         null_values=_MATRIX_NULL_VALS)
+    df_pheno = lf.filter(pl.col("ID").is_in(clumped_ids)).collect()
     drop_cols = [c for c in ["chrom", "pos", "A0", "A1"] if c in df_pheno.columns]
     df_pheno = df_pheno.drop(drop_cols)
 
@@ -287,12 +332,152 @@ def load_phenotype_clumped_data(
     return df_clumped.merge(df_pheno, on="ID", how="inner")
 
 
-def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False, gwas_pheno_path=None, clumps_path=None):
+_COL_FILTER_PROTECT = ("ID", "Z", "P", "Z_bin")
+
+
+def filter_columns_by_missing(df, threshold, protect=_COL_FILTER_PROTECT):
+    """Drop feature columns whose fraction of missing values exceeds ``threshold``.
+
+    Operates on the assembled sample matrix (rows = SNPs, columns = phenotype
+    features). ``protect`` columns (ID, target Z, P, Z_bin) are never dropped.
+    Returns ``(filtered_df, stats)``.
+    """
+    R = len(df)
+    feat_cols = [c for c in df.columns if c not in protect]
+    dropped = [c for c in feat_cols if (df[c].isnull().mean() if R else 0.0) > threshold]
+    keep_cols = [c for c in df.columns if c not in dropped]
+    stats = {
+        "strategy": "max_col_missing",
+        "threshold": threshold,
+        "n_features_before": len(feat_cols),
+        "n_features_kept": len(feat_cols) - len(dropped),
+        "n_features_dropped": len(dropped),
+        "dropped_columns": dropped,
+    }
+    return df[keep_cols], stats
+
+
+def target_correlations(df, target="Z", protect=_COL_FILTER_PROTECT):
+    """Marginal Pearson correlation of every feature column with the target.
+
+    Computed on pairwise-complete rows (features still carry nulls at this
+    point in the pipeline), so each feature uses whatever rows it and the
+    target both have. Returns ``(names, r, n)`` where ``r`` is NaN for any
+    feature with fewer than 3 shared rows or zero variance on them.
+    """
+    protect = tuple(protect) + (target,)   # never let the target rate itself
+    feat_cols = [c for c in df.columns if c not in protect]
+    if target not in df.columns or not feat_cols:
+        return feat_cols, np.full(len(feat_cols), np.nan), np.zeros(len(feat_cols), dtype=int)
+
+    y_all = pd.to_numeric(df[target], errors="coerce").to_numpy(dtype=np.float64)
+    rows = np.isfinite(y_all)
+    y = y_all[rows]
+    X = df.loc[rows, feat_cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=np.float64)
+
+    M = np.isfinite(X)                       # (R, F) pairwise-complete mask
+    Xf = np.where(M, X, 0.0)
+    n = M.sum(axis=0).astype(np.float64)     # shared rows per feature
+    sx, sxx = Xf.sum(axis=0), (Xf * Xf).sum(axis=0)
+    sy, syy = M.T @ y, M.T @ (y * y)         # y sums over each feature's own rows
+    sxy = Xf.T @ y
+
+    cov = n * sxy - sx * sy
+    var = (n * sxx - sx * sx) * (n * syy - sy * sy)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        r = np.where(var > 0, cov / np.sqrt(var), np.nan)
+    r[n < 3] = np.nan
+    return feat_cols, r, n.astype(np.int64)
+
+
+def drop_target_correlated_features(df, max_abs_corr, target="Z",
+                                    protect=_COL_FILTER_PROTECT):
+    """Drop feature columns whose |marginal correlation| with the target exceeds
+    ``max_abs_corr``, and report every feature's correlation.
+
+    Runs before the densest-submatrix selection so a near-duplicate of the
+    target can never anchor the feature set. Features whose correlation is
+    undefined (too few shared rows, or constant) are kept. Returns
+    ``(filtered_df, stats)``; ``stats["correlations"]`` holds the full
+    per-feature report, sorted by descending |r|.
+    """
+    feat_cols, r, n = target_correlations(df, target=target, protect=protect)
+    dropped = [c for c, ri in zip(feat_cols, r) if np.isfinite(ri) and abs(ri) > max_abs_corr]
+    keep_cols = [c for c in df.columns if c not in dropped]
+
+    order = np.argsort(-np.nan_to_num(np.abs(r), nan=-1.0), kind="stable")
+    stats = {
+        "strategy": "max_target_corr",
+        "threshold": max_abs_corr,
+        "target": target,
+        "method": "pearson_pairwise_complete",
+        "n_features_before": len(feat_cols),
+        "n_features_kept": len(feat_cols) - len(dropped),
+        "n_features_dropped": len(dropped),
+        "dropped_columns": dropped,
+        "correlations": [
+            {"feature": feat_cols[i],
+             "pearson_r": float(r[i]) if np.isfinite(r[i]) else None,
+             "n_complete": int(n[i]),
+             "dropped": feat_cols[i] in dropped}
+            for i in order
+        ],
+    }
+    return df[keep_cols], stats
+
+
+def pick_densest_features(df, min_complete_frac, protect=_COL_FILTER_PROTECT):
+    """Pick the largest set of densest feature columns such that the fraction of
+    rows complete (non-null across every kept feature) stays >= ``min_complete_frac``.
+
+    Adds features densest-first; the complete-row count only falls as features
+    are added, so this walks that curve and stops at the last feature count that
+    still clears the target fraction. Returns ``(filtered_df, stats)``.
+    """
+    R = len(df)
+    feat_cols = [c for c in df.columns if c not in protect]
+    if R == 0 or not feat_cols:
+        return df, {"strategy": "min_complete_frac", "threshold": min_complete_frac,
+                    "n_features_before": len(feat_cols), "n_features_kept": len(feat_cols),
+                    "n_features_dropped": 0, "achieved_complete_frac": None,
+                    "dropped_columns": []}
+
+    present = df[feat_cols].notnull().to_numpy()          # (R, F) bool
+    order = np.argsort(present.mean(axis=0), kind="stable")[::-1]   # densest first
+    keep_mask = np.ones(R, dtype=bool)
+    best_k, best_frac = 0, 1.0
+    for k, idx in enumerate(order, start=1):
+        keep_mask = keep_mask & present[:, idx]
+        frac = keep_mask.sum() / R
+        if frac >= min_complete_frac:
+            best_k, best_frac = k, frac
+        else:
+            break                                          # monotonic: never recovers
+    if best_k == 0:                                        # even densest single column misses target
+        best_k, best_frac = 1, float(present[:, order[0]].mean())
+        print(f"  WARNING: min_complete_frac={min_complete_frac} unreachable; "
+              f"densest single feature gives only {best_frac:.1%} complete rows")
+
+    kept_feats = {feat_cols[i] for i in order[:best_k]}
+    keep_cols = [c for c in df.columns if c in protect or c in kept_feats]
+    stats = {
+        "strategy": "min_complete_frac",
+        "threshold": min_complete_frac,
+        "n_features_before": len(feat_cols),
+        "n_features_kept": best_k,
+        "n_features_dropped": len(feat_cols) - best_k,
+        "achieved_complete_frac": best_frac,
+        "dropped_columns": [c for c in feat_cols if c not in kept_feats],
+    }
+    return df[keep_cols], stats
+
+
+def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="SCZ", data_path=None, max_bins=100, polars=True, chunk_size=100000, total_chunks=None, sample_p=False, gwas_pheno_path=None, clumps_path=None, max_col_missing=None, min_complete_frac=None, use_parquet=True, max_target_corr=0.8):
 
     if gwas_pheno_path is not None:
         df = load_phenotype_clumped_data(
             illness, gwas_pheno_path, clumps_path=clumps_path,
-            chunk_size=chunk_size, total_chunks=total_chunks,
+            chunk_size=chunk_size, total_chunks=total_chunks, use_parquet=use_parquet,
         )
     else:
         if data_path is None:
@@ -318,19 +503,19 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
     significant     = df.loc[df["P"] <= p_value].copy()
     non_significant = df.loc[df["P"] > p_value].copy()
 
+    # Each branch builds the final sampled `df` and its `output_path`; the shared
+    # tail below drops P, prunes sparse feature columns, and writes the file.
+    n_bins = min_samples = None
+    base_dir = "data/sampled_p" if sample_p else "data/sampled"
+
     if distribution == "uninformed":
         if sample_size is None:
             sample_size = len(significant)
         sampled_non_significant = non_significant.sample(n=sample_size, random_state=42)
         df = pd.concat([significant, sampled_non_significant], ignore_index=True)
-        df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
-        # save as txt file
         output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        df.to_csv(output_path, sep="\t", index=False)
-        print(f"Saved sampled data with uninformed distribution at {output_path} \n ")
     elif distribution == "uniform":
         n_significant = len(significant)
-        max_bins = max_bins        
         n_bins = min(max_bins, n_significant)  # ensure we don't have more bins than samples
         non_significant["Z_bin"] = pd.cut(
             non_significant["Z"],
@@ -342,47 +527,55 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
         sampled_non_significant = non_significant.groupby("Z_bin").apply(
             lambda x: x.sample(n=min_samples, replace=True) if len(x) >= min_samples else x
         ).reset_index(drop=True)
-        # remove Z_bin column
-        #sampled_non_significant.drop(columns=["Z_bin"], inplace=True)
         df = pd.concat([significant, sampled_non_significant], ignore_index=True)
-        df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
-        # save as txt file
         output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, sep="\t", index=False)
-        print(f"Saved sampled data with uniform distribution at {output_path} \n ")
     elif distribution == "low_high":
-        # sort non significant by P value in ascending order
-        non_significant = non_significant.sort_values(by="P", ascending=False)  # Replace 'P' with your actual p-value column name
-        
-        # take as many non-significant samples as significant samples, 
+        non_significant = non_significant.sort_values(by="P", ascending=False)
         non_significant_sampled = non_significant.head(len(significant))
         df = pd.concat([significant, non_significant_sampled], ignore_index=True)
-        df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
-        # save as txt file
-        if sample_p:
-            output_path = Path(f"data/sampled_p/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        else:
-            output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        # make sure output directory exists
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, sep="\t", index=False)
-        print(f"Saved sampled data with low_high distribution at {output_path} \n ")
+        output_path = Path(f"{base_dir}/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
     elif distribution == "low":
-        # just save the significant samples
         df = significant.copy()
-        df.drop(columns=["P"], inplace=True)  # Drop the p-value column as it's no longer needed
-        # save as txt file
-        if sample_p:
-            output_path = Path(f"data/sampled_p/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        else:
-            output_path = Path(f"data/sampled/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
-        # make sure output directory exists
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, sep="\t", index=False)
-        print(f"Saved sampled data with low distribution at {output_path} \n ")
+        output_path = Path(f"{base_dir}/{distribution}/sampled_{illness}_p{p_value}.txt").expanduser().resolve()
     else:
         raise ValueError(f"Unsupported distribution: {distribution}")
+
+    # Drop the p-value column (no longer needed for modelling).
+    if "P" in df.columns:
+        df = df.drop(columns=["P"])
+
+    # ── Marginal correlation with the target ──────────────────────────────────
+    # Reported for every feature, and features too close to the target are
+    # dropped here — before the densest-submatrix selection below, so a
+    # near-duplicate of the target can't shape the kept feature set.
+    target_corr_stats = None
+    if max_target_corr is not None:
+        df, target_corr_stats = drop_target_correlated_features(
+            df, float(max_target_corr), target="Z")
+        print(f"  target correlation (max_target_corr={max_target_corr}): kept "
+              f"{target_corr_stats['n_features_kept']}/{target_corr_stats['n_features_before']} "
+              f"features ({target_corr_stats['n_features_dropped']} dropped"
+              + (f": {', '.join(target_corr_stats['dropped_columns'])}"
+                 if target_corr_stats["dropped_columns"] else "") + ")")
+
+    # ── Optional feature-column pruning by missingness ────────────────────────
+    # min_complete_frac (auto-pick densest features to hit a complete-row target)
+    # takes precedence over max_col_missing (drop columns over a null-rate floor).
+    col_filter_stats = None
+    if min_complete_frac is not None:
+        df, col_filter_stats = pick_densest_features(df, float(min_complete_frac))
+        print(f"  column filter (min_complete_frac={min_complete_frac}): kept "
+              f"{col_filter_stats['n_features_kept']}/{col_filter_stats['n_features_before']} "
+              f"features -> {col_filter_stats['achieved_complete_frac']:.1%} of rows complete")
+    elif max_col_missing is not None:
+        df, col_filter_stats = filter_columns_by_missing(df, float(max_col_missing))
+        print(f"  column filter (max_col_missing={max_col_missing}): kept "
+              f"{col_filter_stats['n_features_kept']}/{col_filter_stats['n_features_before']} "
+              f"features ({col_filter_stats['n_features_dropped']} dropped)")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, sep="\t", index=False)
+    print(f"Saved sampled data with {distribution} distribution at {output_path} \n ")
 
     # construct output dictionary with metadata
     output = {
@@ -392,8 +585,10 @@ def sample(p_value, sample_size=None, distribution="uniform", seed=42, illness="
         "sample_size": len(df),
         "num_significant": len(significant),
         "num_non_significant": len(non_significant),
-        "num_bins": n_bins if distribution == "uniform" else None,
-        "min_samples_per_bin": min_samples if distribution == "uniform" else None,
+        "num_bins": n_bins,
+        "min_samples_per_bin": min_samples,
+        "target_correlation": target_corr_stats,
+        "column_filter": col_filter_stats,
         "output_path": str(output_path),
     }
 

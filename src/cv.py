@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import gc
+from pathlib import Path
 
 import numpy as np
 import optuna
@@ -19,7 +20,9 @@ from .evaluation import (
     report_fold_metrics,
 )
 from .hpo import NEEDS_SCALING, NEEDS_VAL_SPLIT, build_model, get_default_search_space, suggest_params
+from .shap_explain import explain_fold
 from .training import train, train_mdn
+from .training_curves import plot_training_curves
 
 
 def _apply_pca(
@@ -104,6 +107,8 @@ def nested_cv(
     best_params_list: list | None = None,
     val_size: float = 0.1,
     experiment_name: str = "",
+    feature_names: list | None = None,
+    results_dir: str | None = None,
 ) -> dict:
     """Generic nested cross-validation with optional Optuna HPO.
 
@@ -117,10 +122,25 @@ def nested_cv(
     Scaling (StandardScaler) is applied per inner fold for all models in
     ``NEEDS_SCALING`` (lasso/ridge/elastic/linear regression, DNN variants).
     The scaler is always fit on the inner training split only to avoid leakage.
+
+    When ``cfg["shap"]["enabled"]`` is true, each outer fold's final model is
+    explained on its test set via ``src.shap_explain.explain_fold`` after that
+    fold's metrics are reported (never during inner-fold HPO). ``feature_names``
+    and ``results_dir`` control where plots are written and how features are
+    labeled; see ``src/shap_explain.py`` for the full config schema.
     """
     task_type = cfg.get("model", {}).get("type", "regression")
     is_classification = task_type == "binary_classification"
     needs_scaling = model_name in NEEDS_SCALING
+
+    shap_cfg = cfg.get("shap", {}) or {}
+    shap_enabled = bool(shap_cfg.get("enabled", False))
+
+    # Per-epoch train/test curves on the outer fold. Recording defaults on (it
+    # only costs anything for epoch-based models); rendering is opt-in.
+    curves_cfg = cfg.get("training_curves", {}) or {}
+    curves_enabled = bool(curves_cfg.get("enabled", True))
+    curves_plots = bool(curves_cfg.get("plots", False))
 
     X_arr = np.asarray(X, dtype=np.float32)
     y_arr = np.asarray(y, dtype=np.float32).ravel()
@@ -131,6 +151,7 @@ def nested_cv(
     fold_label_distributions: list[dict] = []
     fold_confidence_metrics: list[list[dict]] = []  # populated only for MDN
     fold_init_params: list[dict] = []               # populated only for MDN
+    fold_training_curves: list[dict] = []           # populated only for epoch-based models
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -146,6 +167,10 @@ def nested_cv(
         X_test_outer = X_arr[test_idx]
         y_train_outer = y_arr[train_idx]
         y_test_outer = y_arr[test_idx]
+
+        # Per-epoch curves for this fold, filled in by the epoch-based trainers
+        # (DNN/MDN). Left None when disabled so no extra eval passes run.
+        epoch_history: list[dict] | None = [] if curves_enabled else None
 
         is_binary_labels = is_classification and model_name != "mdn"
         fold_label_distributions.append({
@@ -226,6 +251,7 @@ def nested_cv(
                 X_test_outer,
                 cfg,
                 y_test=y_test_outer,
+                history=epoch_history,
             )
             fold_init_params.append({
                 "init_mu": init_mu,
@@ -241,13 +267,26 @@ def nested_cv(
                 f"/{len(y_test_outer)}"
             )
         else:
-            preds = train(
-                model,
-                X_train_final, y_train_final,
-                X_val_final, y_val_final,
-                X_test_outer, y_test_outer,
-                cfg,
-            )
+            fitted_model = None
+            if shap_enabled:
+                preds, fitted_model = train(
+                    model,
+                    X_train_final, y_train_final,
+                    X_val_final, y_val_final,
+                    X_test_outer, y_test_outer,
+                    cfg,
+                    return_model=True,
+                    history=epoch_history,
+                )
+            else:
+                preds = train(
+                    model,
+                    X_train_final, y_train_final,
+                    X_val_final, y_val_final,
+                    X_test_outer, y_test_outer,
+                    cfg,
+                    history=epoch_history,
+                )
 
         if model_name == "mdn" and task_type == "binary_classification":
             metrics = classification_metrics(
@@ -259,6 +298,31 @@ def nested_cv(
             metrics = compute_metrics(y_test_outer, preds, task_type)
         report_fold_metrics(metrics, fold + 1, outer_cv, experiment_name, task_type)
         fold_metrics.append(metrics)
+
+        if epoch_history:
+            fold_training_curves.append({"fold": fold + 1, "epochs": epoch_history})
+            last = epoch_history[-1]
+            sn = last.get("score_name", "score")
+            print(f"  [{experiment_name}] fold {fold + 1}: {len(epoch_history)} epochs recorded "
+                  f"(final train/test loss {last['train_loss']:.4f}/{last['test_loss']:.4f}, "
+                  f"{sn} {last[f'train_{sn}']:.4f}/{last[f'test_{sn}']:.4f})")
+
+        if shap_enabled and model_name != "mdn":
+            try:
+                effective_names = (
+                    [f"PC{i + 1}" for i in range(X_train_final.shape[1])]
+                    if pca is not None else feature_names
+                )
+                explain_fold(
+                    fitted_model, model_name, task_type,
+                    X_background=X_train_final, X_test=X_test_outer,
+                    feature_names=effective_names, fold=fold,
+                    experiment_name=experiment_name, shap_cfg=shap_cfg,
+                    results_dir=Path(results_dir) if results_dir else Path("./results") / experiment_name,
+                )
+            except Exception as e:
+                print(f"  [{experiment_name}] SHAP explanation failed for fold {fold + 1}: {e}")
+
         gc.collect()
 
     aggregated = aggregate_metrics(fold_metrics, task_type, experiment_name)
@@ -273,6 +337,20 @@ def nested_cv(
         result["confidence_threshold_evaluation"] = aggregate_confidence_metrics(fold_confidence_metrics)
     if fold_init_params:
         result["fold_init_params"] = fold_init_params
+    if fold_training_curves:
+        result["training_curves"] = fold_training_curves
+        if curves_plots:
+            out_root = Path(results_dir) if results_dir else Path("./results") / experiment_name
+            try:
+                out = plot_training_curves(
+                    fold_training_curves, out_root,
+                    experiment_name=experiment_name,
+                    dir_name=curves_cfg.get("dir", "training"),
+                )
+                if out:
+                    print(f"[{experiment_name}] Training curves written to {out}")
+            except Exception as e:
+                print(f"[{experiment_name}] Training-curve plots failed: {e}")
     return result
 
 

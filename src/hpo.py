@@ -6,6 +6,7 @@ NEEDS_SCALING: frozenset[str] = frozenset({
     "linear_regression",
     "lasso_regression",
     "ridge_regression",
+    "bayesian_ridge_regression",
     "elastic_regression",
     "logistic_regression",
     "ridge_logistic_regression",
@@ -276,6 +277,27 @@ def build_model(model_name: str, params: dict, cfg: dict):
             random_state=seed,
         )
 
+    if model_name == "bayesian_ridge_regression":
+        if task_type == "binary_classification":
+            raise ValueError(
+                "bayesian_ridge_regression is a regression-only model; use "
+                "ridge_logistic_regression for binary classification"
+            )
+        from model import BayesianRidgeRegressionModel
+        # alpha (noise precision) and lambda (weight-prior precision) are fitted
+        # by evidence maximisation, so there is no penalty strength to tune --
+        # hence no entry in _DEFAULT_SPACES and n_trials=0. Only the Gamma
+        # hyperpriors are configurable, and the near-flat defaults are the point.
+        return BayesianRidgeRegressionModel(
+            alpha_1=float(params.get("alpha_1", 1e-6)),
+            alpha_2=float(params.get("alpha_2", 1e-6)),
+            lambda_1=float(params.get("lambda_1", 1e-6)),
+            lambda_2=float(params.get("lambda_2", 1e-6)),
+            max_iter=int(params.get("max_iter", 300)),
+            tol=float(params.get("tol", 1e-3)),
+            fit_intercept=bool(params.get("fit_intercept", True)),
+        )
+
     if model_name == "elastic_regression":
         from model import ElasticRegressionModel
         return ElasticRegressionModel(
@@ -324,6 +346,10 @@ def build_model(model_name: str, params: dict, cfg: dict):
     # ── TabPFN ───────────────────────────────────────────────────────────────
     if model_name == "tabpfn":
         device = cfg.get("model", {}).get("device", "cpu")
+        # SHAP's imputation-based explainer (src/shap_explain.py) is dramatically
+        # faster with TabPFN's KV cache engaged; only enable it for experiments
+        # that actually opted into SHAP so the normal training path is untouched.
+        fit_mode = "fit_with_cache" if cfg.get("shap", {}).get("enabled", False) else None
         if task_type == "binary_classification":
             if params.get("finetune", False):
                 from model import FinetunedTabPFNBinaryClassifierModel
@@ -332,9 +358,10 @@ def build_model(model_name: str, params: dict, cfg: dict):
                     device=device,
                     epochs=int(params.get("epochs", 30)),
                     learning_rate=float(params.get("learning_rate", 1e-5)),
+                    fit_mode=fit_mode,
                 )
             from model import TabPFNBinaryClassifierModel
-            return TabPFNBinaryClassifierModel(random_state=seed)
+            return TabPFNBinaryClassifierModel(random_state=seed, fit_mode=fit_mode)
 
         if params.get("finetune", False):
             from model import FinetunedTabPFNModel
@@ -343,9 +370,10 @@ def build_model(model_name: str, params: dict, cfg: dict):
                 device=device,
                 epochs=int(params.get("epochs", 30)),
                 learning_rate=float(params.get("learning_rate", 1e-5)),
+                fit_mode=fit_mode,
             )
         from model import TabPFNModel
-        return TabPFNModel(random_state=seed)
+        return TabPFNModel(random_state=seed, fit_mode=fit_mode)
 
     # ── Baseline ─────────────────────────────────────────────────────────────
     if model_name == "baseline":

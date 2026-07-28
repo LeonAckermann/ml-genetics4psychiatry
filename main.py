@@ -26,8 +26,9 @@ from dataloader.pipeline import (
     construct_gwas_phenotype,
     included_phenotype_columns,
     prepare_phenotype_clump_input,
+    select_dense_features,
 )
-from dataloader.preprocess import sample
+from dataloader.preprocess import drop_target_correlated_features, sample
 from src import get_default_search_space, nested_cv
 
 
@@ -54,6 +55,7 @@ class NumpyEncoder(json.JSONEncoder):
 #   linear      → linear_regression      / logistic_regression
 #   lasso       → lasso_regression       / lasso_logistic_regression
 #   ridge       → ridge_regression       / ridge_logistic_regression
+#   bayesian_ridge → bayesian_ridge_regression  (regression only)
 #   xgboost     → xgboost               (same for both task types)
 #   residual_dnn→ residual_dnn           (same for both task types)
 #   tabpfn      → tabpfn                 (same for both task types)
@@ -67,6 +69,10 @@ _MODEL_NAME_MAP: dict[tuple[str, str], str] = {
     ("lasso",  "binary_classification"): "lasso_logistic_regression",
     ("ridge",  "regression"):            "ridge_regression",
     ("ridge",  "binary_classification"): "ridge_logistic_regression",
+    # Regression-only. The binary entry maps to the same name so build_model
+    # can raise a specific error instead of a bare "Unknown model".
+    ("bayesian_ridge", "regression"):            "bayesian_ridge_regression",
+    ("bayesian_ridge", "binary_classification"): "bayesian_ridge_regression",
 }
 
 
@@ -203,9 +209,17 @@ def main() -> None:
         gwas_pheno_path = phenotype_clumping_cfg["gwas_pheno_path"]
         phenotypes = phenotype_clumping_cfg.get("phenotypes")
         if not phenotypes:
-            phenotypes = included_phenotype_columns(
-                gwas_pheno_path, phenotype_clumping_cfg["info_csv_path"],
-            )
+            min_density = phenotype_clumping_cfg.get("min_density")
+            if min_density is not None:
+                density_json = phenotype_clumping_cfg.get(
+                    "density_json", "./data/pipeline/analysis/dense_density.json")
+                phenotypes = select_dense_features(density_json, float(min_density))
+                print(f"Selected {len(phenotypes)} phenotypes at density >= "
+                      f"{min_density} from {density_json}")
+            else:
+                phenotypes = included_phenotype_columns(
+                    gwas_pheno_path, phenotype_clumping_cfg["info_csv_path"],
+                )
         print(f"Phenotypes: {', '.join(phenotypes)}")
 
         create_final = phenotype_clumping_cfg.get("create_final", False)
@@ -427,34 +441,26 @@ def main() -> None:
         results_file = results_dir / f"{experiment_name}_{timestamp}.json"
         output = {}
 
-        # ── Load data ─────────────────────────────────────────────────────────
-        if using_custom_data:
-            sep = "," if resolved_data_path.suffix.lower() == ".csv" else "\t"
-            if data_cfg.get("polars", True):
-                df = load_txt_polars(resolved_data_path, sep=sep, chunk_size=chunk_size, total_chunks=total_chunks)
-            else:
-                df = load_txt(resolved_data_path, sep=sep, chunk_size=chunk_size, total_chunks=total_chunks)
+        # ── Optional sampling ─────────────────────────────────────────────────
+        if data_cfg.get("sampling", False):
+            print(f"Sampling data for illness={illness}, p_clump={p}, distribution={dist}...")
+            sampling_metrics = sample(
+                p_value=p, distribution=dist, illness=illness,
+                polars=data_cfg.get("polars", False),
+                chunk_size=data_cfg.get("chunk_size", 100000),
+                total_chunks=data_cfg.get("total_chunks", None),
+                sample_p=data_cfg.get("sample_p", False),
+                gwas_pheno_path=data_cfg.get("gwas_pheno_path"),
+                clumps_path=data_cfg.get("clumps_path"),
+            )
+            output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
         else:
-            # ── Optional sampling ─────────────────────────────────────────────
-            if data_cfg.get("sampling", False):
-                print(f"Sampling data for illness={illness}, p_clump={p}, distribution={dist}...")
-                sampling_metrics = sample(
-                    p_value=p, distribution=dist, illness=illness,
-                    polars=data_cfg.get("polars", False),
-                    chunk_size=data_cfg.get("chunk_size", 100000),
-                    total_chunks=data_cfg.get("total_chunks", None),
-                    sample_p=data_cfg.get("sample_p", False),
-                    gwas_pheno_path=data_cfg.get("gwas_pheno_path"),
-                    clumps_path=data_cfg.get("clumps_path"),
+            data_path = Path(f"./data/sampled/{dist}/sampled_{illness}_p{p}.txt")
+            if not data_path.exists():
+                raise FileNotFoundError(
+                    f"Sampled data not found at {data_path}. "
+                    "Run with sampling: true first."
                 )
-                output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
-            else:
-                data_path = Path(f"./data/sampled/{dist}/sampled_{illness}_p{p}.txt")
-                if not data_path.exists():
-                    raise FileNotFoundError(
-                        f"Sampled data not found at {data_path}. "
-                        "Run with sampling: true first."
-                    )
 
             df = load_illness_data(
                 illness,
@@ -476,32 +482,9 @@ def main() -> None:
             print(f"Original shape {int(df.shape[0] / row_ratio)} samples, {int(df.shape[1] / col_ratio)} features")
 
         df_pandas = df.to_pandas() if hasattr(df, "to_pandas") else df
-
-        # Resolve the target column: an explicit data.target name takes
-        # priority; otherwise data.target_regex is matched against the
-        # dataframe's columns (must match exactly one).
-        target_col = data_cfg.get("target")
-        target_regex = data_cfg.get("target_regex")
-        if not target_col:
-            if not target_regex:
-                raise ValueError("Config must set data.target or data.target_regex")
-            matches = [c for c in df_pandas.columns if re.search(target_regex, c)]
-            if len(matches) != 1:
-                raise ValueError(
-                    f"data.target_regex={target_regex!r} matched {len(matches)} columns "
-                    f"(expected exactly 1): {matches}"
-                )
-            target_col = matches[0]
-            print(f"Resolved target column via regex: {target_col}")
-        iter_cfg["data"]["target"] = target_col
-
-        # data.ignore_columns lists columns (e.g. ID/metadata columns) to drop
-        # from the feature matrix in addition to the target column.
-        ignore_cols = [c for c in data_cfg.get("ignore_columns", []) if c in df_pandas.columns]
         id_cols = [col for col in ["ID"] if col in df_pandas.columns]
-        drop_cols = list(dict.fromkeys([target_col] + id_cols + ignore_cols))
-        X = df_pandas.drop(columns=drop_cols)
-        y = df_pandas[target_col]
+        X = df_pandas.drop(columns=[data_cfg["target"]] + id_cols)
+        y = df_pandas[data_cfg["target"]]
 
         # ── Optional random row subsampling (distinct from row_ratio) ─────────
         if rand_frac < 1.0:
@@ -526,7 +509,7 @@ def main() -> None:
             from scipy.stats import norm
             y = norm.sf(abs(y)) * 2
             y = (y <= iter_cfg["model"]["p_value_binary"]).astype(int)
-        
+
         # ── Resolve best params and n_trials ──────────────────────────────────
         best_params_for_eval = None
 
@@ -575,6 +558,8 @@ def main() -> None:
             search_space=hpo_cfg.get("search_space"),
             best_params_list=best_params_for_eval,
             experiment_name=experiment_name,
+            feature_names=list(X.columns),
+            results_dir=results_dir,
         )
 
         output.update({
@@ -582,6 +567,9 @@ def main() -> None:
             "noise_sigma": noise_sigma,
             "rand_frac": rand_frac,
             "pca": pca_var,
+            "target_correlation": target_corr_stats,
+            "drop_missing": drop_missing_stats,
+            "selected_features": selected_features,
             "config": iter_cfg,
             "timestamp": timestamp,
             "hpo": results,

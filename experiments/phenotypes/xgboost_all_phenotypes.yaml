@@ -1,0 +1,86 @@
+# Experiment: XGBoost with HPO for every density-selected phenotype.
+# Mirrors ../pipeline/linear_regression_all_phenotypes.yaml (density-selected
+# feature list, drop_missing, per-phenotype clumped-SNP sampling) but runs
+# xgboost with the HPO search space from ../hpo/xgboost_hpo_regression.yaml.
+#
+# For each phenotype: predicts its own Z-score from every other phenotype
+# column, restricted to its own clumped SNPs (output/clumped_<phenotype>.clumps)
+# under p_clump, dropping rows with any missing value before training.
+
+construct_gwas_mri:
+  run: false
+
+gwas_phenotype_construction:
+  run: false
+
+phenotype_clumping:
+  run: false
+
+plink2:
+  prepare: false
+
+data:
+  # illness blank -> auto-detected. With min_density set, the phenotype list is
+  # taken from the density-frontier JSON (the same features used for clumping)
+  # instead of info_csv_path; unset min_density to fall back to info.csv.
+  illness: ["BCT_BASO"]
+  min_density: 0.8
+  density_json: "./data/pipeline/analysis/dense_density.json"
+  gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
+  info_csv_path: "./data/pipeline/input/gwas_pheno/info.csv"
+  p_clump: [0.001]
+  distribution: ["low"]
+  target: Z
+  drop_missing: true   # drop rows with any null feature/target before training
+  test_size: 0.2
+  n_splits: 5
+  save_splits: true
+  polars: true
+  chunk_size: 100000
+  row_ratio: [1.0]
+  col_ratio: [1.0]
+  top_rows: true
+  top_cols: true
+  sampling: true
+
+experiment:
+  run: true
+
+model:
+  name: xgboost
+  type: ["regression"]
+  p_value_binary: 0.0001
+
+hpo:
+  run: true
+  n_trials: 10
+  outer_cv: 5
+  inner_cv: 5
+  search_space:
+    n_estimators: [30, 100]
+    max_depth: [3, 8]
+    learning_rate: [0.1, 0.6]
+    subsample: [0.5, 1.0]
+    colsample_bytree: [0.8, 1.0]
+    reg_alpha: [0, 0.1]
+    reg_lambda: [0, 0.5]
+    min_child_weight: [1, 3]
+    gamma: [0, 0.3]
+    early_stopping_rounds: [5, 20]
+
+load_best_params: false
+
+evaluation:
+  metrics: [r2, mse, pearson_r2]
+  binary_threshold: null
+
+# Per-boosting-round train/test metrics on the OUTER fold, written to the result
+# JSON under hpo.training_curves and rendered to results/<experiment>/training/.
+# For XGBoost the step is a boosting round rather than an epoch; loss is rmse
+# (logloss for classification) and the score is R² (accuracy for classification).
+# The outer train and test splits are added as extra eval sets — validation stays
+# validation_0, so early stopping keeps selecting on the val split, not the test.
+training_curves:
+  enabled: true
+  plots: true
+  dir: training
