@@ -6,6 +6,7 @@ NEEDS_SCALING: frozenset[str] = frozenset({
     "linear_regression",
     "lasso_regression",
     "ridge_regression",
+    "bayesian_ridge_regression",
     "elastic_regression",
     "logistic_regression",
     "ridge_logistic_regression",
@@ -274,6 +275,27 @@ def build_model(model_name: str, params: dict, cfg: dict):
             alpha=float(params.get("alpha", params.get("best_alpha", 1000.0))),
             max_iter=10000,
             random_state=seed,
+        )
+
+    if model_name == "bayesian_ridge_regression":
+        if task_type == "binary_classification":
+            raise ValueError(
+                "bayesian_ridge_regression is a regression-only model; use "
+                "ridge_logistic_regression for binary classification"
+            )
+        from model import BayesianRidgeRegressionModel
+        # alpha (noise precision) and lambda (weight-prior precision) are fitted
+        # by evidence maximisation, so there is no penalty strength to tune --
+        # hence no entry in _DEFAULT_SPACES and n_trials=0. Only the Gamma
+        # hyperpriors are configurable, and the near-flat defaults are the point.
+        return BayesianRidgeRegressionModel(
+            alpha_1=float(params.get("alpha_1", 1e-6)),
+            alpha_2=float(params.get("alpha_2", 1e-6)),
+            lambda_1=float(params.get("lambda_1", 1e-6)),
+            lambda_2=float(params.get("lambda_2", 1e-6)),
+            max_iter=int(params.get("max_iter", 300)),
+            tol=float(params.get("tol", 1e-3)),
+            fit_intercept=bool(params.get("fit_intercept", True)),
         )
 
     if model_name == "elastic_regression":

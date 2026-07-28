@@ -25,8 +25,9 @@ from dataloader.pipeline import (
     construct_gwas_phenotype,
     included_phenotype_columns,
     prepare_phenotype_clump_input,
+    select_dense_features,
 )
-from dataloader.preprocess import sample
+from dataloader.preprocess import drop_target_correlated_features, sample
 from src import get_default_search_space, nested_cv
 
 
@@ -53,6 +54,7 @@ class NumpyEncoder(json.JSONEncoder):
 #   linear      → linear_regression      / logistic_regression
 #   lasso       → lasso_regression       / lasso_logistic_regression
 #   ridge       → ridge_regression       / ridge_logistic_regression
+#   bayesian_ridge → bayesian_ridge_regression  (regression only)
 #   xgboost     → xgboost               (same for both task types)
 #   residual_dnn→ residual_dnn           (same for both task types)
 #   tabpfn      → tabpfn                 (same for both task types)
@@ -66,6 +68,10 @@ _MODEL_NAME_MAP: dict[tuple[str, str], str] = {
     ("lasso",  "binary_classification"): "lasso_logistic_regression",
     ("ridge",  "regression"):            "ridge_regression",
     ("ridge",  "binary_classification"): "ridge_logistic_regression",
+    # Regression-only. The binary entry maps to the same name so build_model
+    # can raise a specific error instead of a bare "Unknown model".
+    ("bayesian_ridge", "regression"):            "bayesian_ridge_regression",
+    ("bayesian_ridge", "binary_classification"): "bayesian_ridge_regression",
 }
 
 
@@ -202,9 +208,17 @@ def main() -> None:
         gwas_pheno_path = phenotype_clumping_cfg["gwas_pheno_path"]
         phenotypes = phenotype_clumping_cfg.get("phenotypes")
         if not phenotypes:
-            phenotypes = included_phenotype_columns(
-                gwas_pheno_path, phenotype_clumping_cfg["info_csv_path"],
-            )
+            min_density = phenotype_clumping_cfg.get("min_density")
+            if min_density is not None:
+                density_json = phenotype_clumping_cfg.get(
+                    "density_json", "./data/pipeline/analysis/dense_density.json")
+                phenotypes = select_dense_features(density_json, float(min_density))
+                print(f"Selected {len(phenotypes)} phenotypes at density >= "
+                      f"{min_density} from {density_json}")
+            else:
+                phenotypes = included_phenotype_columns(
+                    gwas_pheno_path, phenotype_clumping_cfg["info_csv_path"],
+                )
         print(f"Phenotypes: {', '.join(phenotypes)}")
 
         create_final = phenotype_clumping_cfg.get("create_final", False)
@@ -317,15 +331,26 @@ def main() -> None:
         return float(v)
     pca_values: list[float | str | None] = [_parse_pca(v) for v in _raw_pca]
 
-    # data.illness left blank/empty → auto-detect every include=1 phenotype
+    # data.illness left blank/empty → auto-detect the phenotype list. Prefer the
+    # density-frontier selection (same features used for clumping) when
+    # data.min_density is set; otherwise fall back to every include=1 phenotype
     # from info.csv that's present as a column in the gwas_pheno matrix.
     illness_list = data_cfg.get("illness") or []
     if not illness_list:
-        illness_list = included_phenotype_columns(
-            data_cfg["gwas_pheno_path"], data_cfg["info_csv_path"],
-        )
-        print(f"data.illness is empty — auto-detected {len(illness_list)} phenotypes "
-              f"from info.csv: {', '.join(illness_list)}")
+        min_density = data_cfg.get("min_density")
+        if min_density is not None:
+            density_json = data_cfg.get(
+                "density_json", "./data/pipeline/analysis/dense_density.json")
+            illness_list = select_dense_features(density_json, float(min_density))
+            print(f"data.illness is empty — selected {len(illness_list)} phenotypes "
+                  f"at density >= {min_density} from {density_json}: "
+                  f"{', '.join(illness_list)}")
+        else:
+            illness_list = included_phenotype_columns(
+                data_cfg["gwas_pheno_path"], data_cfg["info_csv_path"],
+            )
+            print(f"data.illness is empty — auto-detected {len(illness_list)} phenotypes "
+                  f"from info.csv: {', '.join(illness_list)}")
 
     for dist, p, illness, row_ratio, col_ratio, task_type, noise_sigma, rand_frac, pca_var in product(
         data_cfg.get("distribution", []),
@@ -383,6 +408,10 @@ def main() -> None:
                 sample_p=data_cfg.get("sample_p", False),
                 gwas_pheno_path=data_cfg.get("gwas_pheno_path"),
                 clumps_path=data_cfg.get("clumps_path"),
+                max_col_missing=data_cfg.get("max_col_missing"),
+                min_complete_frac=data_cfg.get("min_complete_frac"),
+                max_target_corr=data_cfg.get("max_target_corr", 0.8),
+                use_parquet=data_cfg.get("use_parquet", True),
             )
             output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
         else:
@@ -392,6 +421,16 @@ def main() -> None:
                     f"Sampled data not found at {data_path}. "
                     "Run with sampling: true first."
                 )
+            # The feature-pruning knobs all live inside sample(); with sampling
+            # off they are silently inert and the pre-existing sampled file is
+            # used as-is (whatever pruning it was written with). Say so, rather
+            # than letting the config look like it applied.
+            inert = [k for k in ("max_target_corr", "min_complete_frac", "max_col_missing")
+                     if data_cfg.get(k) is not None]
+            if inert:
+                print(f"  NOTE: sampling is off — {', '.join(inert)} not applied; "
+                      f"reusing {data_path} as written. Set data.sampling: true "
+                      f"to recompute (and to report target correlations).")
 
         # ── Load data ─────────────────────────────────────────────────────────
         df = load_illness_data(
@@ -413,9 +452,53 @@ def main() -> None:
         print(f"Original shape {int(df.shape[0] / row_ratio)} samples, {int(df.shape[1] / col_ratio)} features")
 
         df_pandas = df.to_pandas() if hasattr(df, "to_pandas") else df
+
+        # ── Marginal correlation with the target ──────────────────────────────
+        # Applied to whatever matrix is about to be trained on, so it also
+        # covers sampling: false (sampled files on disk predate this filter).
+        # Before drop_missing: correlations use every pairwise-complete row, and
+        # dropping a sparse feature here saves the rows it would have cost.
+        # When sampling ran, this is a no-op re-check — the report then simply
+        # describes the final training matrix.
+        target_corr_stats = None
+        max_target_corr = data_cfg.get("max_target_corr", 0.8)
+        if max_target_corr is not None:
+            df_pandas, target_corr_stats = drop_target_correlated_features(
+                df_pandas, float(max_target_corr), target=data_cfg["target"],
+            )
+            print(f"  target correlation (max_target_corr={max_target_corr}): kept "
+                  f"{target_corr_stats['n_features_kept']}/{target_corr_stats['n_features_before']} "
+                  f"features ({target_corr_stats['n_features_dropped']} dropped"
+                  + (f": {', '.join(target_corr_stats['dropped_columns'])}"
+                     if target_corr_stats["dropped_columns"] else "") + ")")
+
+        # ── Optional: drop rows with any missing value (complete-case matrix) ──
+        # Feature columns (other phenotypes) can be null at a phenotype's selec
+        # SNPs; enable data.drop_missing to train on a fully non-null matrix.
+        drop_missing_stats = None
+        if data_cfg.get("drop_missing", False):
+            n_before = len(df_pandas)
+            df_pandas = df_pandas.dropna().reset_index(drop=True)
+            n_after = len(df_pandas)
+            drop_missing_stats = {
+                "n_before": n_before,
+                "n_after": n_after,
+                "n_dropped": n_before - n_after,
+                "frac_dropped": (n_before - n_after) / n_before if n_before else 0.0,
+            }
+            print(f"  drop_missing: kept {n_after:,}/{n_before:,} rows with "
+                  f"no missing values ({n_before - n_after:,} dropped)")
+
         id_cols = [col for col in ["ID"] if col in df_pandas.columns]
         X = df_pandas.drop(columns=[data_cfg["target"]] + id_cols)
         y = df_pandas[data_cfg["target"]]
+
+        # Predictor features actually used from the sampled file (i.e. the
+        # phenotype columns that survived the sampling-time column pruning).
+        selected_features = {
+            "n_features": int(X.shape[1]),
+            "features": list(X.columns),
+        }
 
         # ── Optional random row subsampling (distinct from row_ratio) ─────────
         if rand_frac < 1.0:
@@ -440,7 +523,7 @@ def main() -> None:
             from scipy.stats import norm
             y = norm.sf(abs(y)) * 2
             y = (y <= iter_cfg["model"]["p_value_binary"]).astype(int)
-        
+
         # ── Resolve best params and n_trials ──────────────────────────────────
         best_params_for_eval = None
 
@@ -498,6 +581,9 @@ def main() -> None:
             "noise_sigma": noise_sigma,
             "rand_frac": rand_frac,
             "pca": pca_var,
+            "target_correlation": target_corr_stats,
+            "drop_missing": drop_missing_stats,
+            "selected_features": selected_features,
             "config": iter_cfg,
             "timestamp": timestamp,
             "hpo": results,
