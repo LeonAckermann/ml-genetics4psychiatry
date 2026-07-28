@@ -129,6 +129,24 @@ Two sampling strategies are available:
 | `uninformed` | Keep all genome-wide-significant SNPs (p < threshold) and randomly sample `sample_size` SNPs from the non-significant set. |
 | `uniform` | Bin non-significant SNPs by Z-score into equal-frequency bins (default 100). Sample a minimum count from each bin to produce a nearly uniform Z-score distribution. |
 
+### Feature pruning during sampling
+
+After sampling, feature columns are pruned in two steps before the file is written:
+
+1. **Marginal correlation with the target** (`data.max_target_corr`, default 0.8).
+   Each feature's Pearson correlation with the target `Z` is computed on
+   pairwise-complete rows and written to the result JSON
+   (`sampling_metrics_*.target_correlation.correlations`, one record per feature
+   with `pearson_r`, `n_complete`, `dropped`). Features with `|r|` above the
+   threshold are dropped — a near-duplicate of the target would otherwise anchor
+   the dense-feature selection below. Features whose correlation is undefined
+   (constant, or fewer than 3 shared rows) are kept. Set to `null` to report
+   without dropping.
+2. **Densest submatrix** (`data.min_complete_frac`, e.g. 0.95): the largest set of
+   densest remaining features such that at least that fraction of rows stays
+   complete. Alternatively `data.max_col_missing` drops any column over a
+   null-rate floor. Reported under `sampling_metrics_*.column_filter`.
+
 Output: `data/sampled/{distribution}/sampled_{ILLNESS}_p{P_VALUE}.txt`
 
 ## 4. Train & evaluate
@@ -158,6 +176,7 @@ The target column is `Z_scores_{ILLNESS}`. Illness-specific p-value thresholds:
 |---|---|---|
 | OLS | `linear_regression` | — |
 | Ridge | `ridge_regression` | `best_alpha` |
+| Bayesian Ridge | `bayesian_ridge_regression` | `alpha_1`, `alpha_2`, `lambda_1`, `lambda_2` (Gamma hyperpriors; the precisions themselves are fitted by evidence maximisation, so there is no HPO) |
 | Lasso | `lasso_regression` | `best_alpha` |
 | ElasticNet | `elastic_regression` | `best_alpha`, `best_l1_ratio` |
 | XGBoost | `xgboost` | `n_estimators`, `max_depth`, `learning_rate`, `subsample`, `colsample_bytree` |

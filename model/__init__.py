@@ -7,6 +7,7 @@ from .NeuralPreconditionedLR import (  # noqa: F401
 from .RRFS import DeepFeatureSelection  # noqa: F401
 from .LinearRegression import LinearRegressionModel  # noqa: F401
 from .RidgeRegression import RidgeRegressionModel  # noqa: F401
+from .BayesianRidgeRegression import BayesianRidgeRegressionModel  # noqa: F401
 from .LassoRegression import LassoRegressionModel  # noqa: F401
 from .ElasticRegression import ElasticRegressionModel  # noqa: F401
 
