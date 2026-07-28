@@ -13,21 +13,28 @@ def train(
     X_test: np.ndarray,
     y_test: np.ndarray,
     cfg: dict,
+    return_model: bool = False,
 ) -> np.ndarray:
-    """Return test-set predictions.
+    """Return test-set predictions (and, if return_model=True, the fitted model too).
 
     Dispatches based on model_or_cfg type:
       - dict with 'class' key and class is MDN → MDN path (returns expected value)
       - dict with 'class' key                  → PyTorch DNN path
       - anything else                           → sklearn fit / predict path
+
+    return_model=True changes the return type from `preds` to `(preds, fitted_model)`.
+    Not supported for MDN (out of scope — callers must not pass return_model=True
+    when model_or_cfg builds an MDN).
     """
     if isinstance(model_or_cfg, dict) and "class" in model_or_cfg:
         from model import MDN
         if model_or_cfg["class"] is MDN:
             preds, _pi, _mu, _init_mu, _init_sigma = train_mdn(model_or_cfg, X_train, y_train, X_val, y_val, X_test, cfg, y_test=y_test)
             return preds
-        return _train_dnn(model_or_cfg, X_train, y_train, X_val, y_val, X_test, cfg)
-    return _train_sklearn(model_or_cfg, X_train, y_train, X_val, y_val, X_test)
+        preds, fitted = _train_dnn(model_or_cfg, X_train, y_train, X_val, y_val, X_test, cfg)
+        return (preds, fitted) if return_model else preds
+    preds, fitted = _train_sklearn(model_or_cfg, X_train, y_train, X_val, y_val, X_test)
+    return (preds, fitted) if return_model else preds
 
 
 def train_mdn(
@@ -194,8 +201,8 @@ def _train_sklearn(
     X_val: np.ndarray,
     y_val: np.ndarray,
     X_test: np.ndarray,
-) -> np.ndarray:
-    """Fit an sklearn-compatible model and return predictions on X_test.
+) -> tuple[np.ndarray, object]:
+    """Fit an sklearn-compatible model and return (predictions on X_test, fitted model).
 
     For XGBRegressor instances that carry early-stopping callbacks, X_val is
     passed as the eval_set so early stopping can fire.  All other models ignore
@@ -212,7 +219,8 @@ def _train_sklearn(
     else:
         model.fit(X_train, y_train)
 
-    return np.asarray(model.predict(X_test), dtype=float).ravel()
+    preds = np.asarray(model.predict(X_test), dtype=float).ravel()
+    return preds, model
 
 
 def _train_dnn(
@@ -223,7 +231,7 @@ def _train_dnn(
     y_val: np.ndarray,
     X_test: np.ndarray,
     cfg: dict,
-) -> np.ndarray:
+) -> tuple[np.ndarray, object]:
     import torch
     from torch import nn, optim
     from torch.utils.data import DataLoader
@@ -301,4 +309,4 @@ def _train_dnn(
     X_test_t = torch.tensor(np.asarray(X_test, dtype=np.float32)).to(device)
     with torch.no_grad():
         preds = model(X_test_t).cpu().numpy().flatten()
-    return preds
+    return preds, model

@@ -21,8 +21,9 @@ import torch
 
 
 class TabPFNModel:
-    def __init__(self, random_state=42):
-        self.model = TabPFNRegressor()  # Uses TabPFN-2.5 weights, trained on synthetic data only.
+    def __init__(self, random_state=42, fit_mode=None):
+        kwargs = {} if fit_mode is None else {"fit_mode": fit_mode}
+        self.model = TabPFNRegressor(**kwargs)  # Uses TabPFN-2.5 weights, trained on synthetic data only.
         # To use TabPFN v2:
         # Create final pipeline with best parameters
 
@@ -31,11 +32,12 @@ class TabPFNModel:
 
     def predict(self, X_test):
         return self.model.predict(X_test)
-    
+
 
 class FinetunedTabPFNModel:
-    def __init__(self, random_state=42, device="cuda", epochs=30, learning_rate=1e-5):
-        self.model = FinetunedTabPFNRegressor(device=device, epochs=epochs, learning_rate=float(learning_rate), random_state=random_state)  # Uses TabPFN-2.5 weights, trained on synthetic data only.
+    def __init__(self, random_state=42, device="cuda", epochs=30, learning_rate=1e-5, fit_mode=None):
+        kwargs = {} if fit_mode is None else {"fit_mode": fit_mode}
+        self.model = FinetunedTabPFNRegressor(device=device, epochs=epochs, learning_rate=float(learning_rate), random_state=random_state, **kwargs)  # Uses TabPFN-2.5 weights, trained on synthetic data only.
         # To use TabPFN v2:
         # Create final pipeline with best parameters
 

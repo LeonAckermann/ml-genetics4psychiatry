@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import gc
+from pathlib import Path
 
 import numpy as np
 import optuna
@@ -19,6 +20,7 @@ from .evaluation import (
     report_fold_metrics,
 )
 from .hpo import NEEDS_SCALING, NEEDS_VAL_SPLIT, build_model, get_default_search_space, suggest_params
+from .shap_explain import explain_fold
 from .training import train, train_mdn
 
 
@@ -104,6 +106,8 @@ def nested_cv(
     best_params_list: list | None = None,
     val_size: float = 0.1,
     experiment_name: str = "",
+    feature_names: list | None = None,
+    results_dir: str | None = None,
 ) -> dict:
     """Generic nested cross-validation with optional Optuna HPO.
 
@@ -117,10 +121,19 @@ def nested_cv(
     Scaling (StandardScaler) is applied per inner fold for all models in
     ``NEEDS_SCALING`` (lasso/ridge/elastic/linear regression, DNN variants).
     The scaler is always fit on the inner training split only to avoid leakage.
+
+    When ``cfg["shap"]["enabled"]`` is true, each outer fold's final model is
+    explained on its test set via ``src.shap_explain.explain_fold`` after that
+    fold's metrics are reported (never during inner-fold HPO). ``feature_names``
+    and ``results_dir`` control where plots are written and how features are
+    labeled; see ``src/shap_explain.py`` for the full config schema.
     """
     task_type = cfg.get("model", {}).get("type", "regression")
     is_classification = task_type == "binary_classification"
     needs_scaling = model_name in NEEDS_SCALING
+
+    shap_cfg = cfg.get("shap", {}) or {}
+    shap_enabled = bool(shap_cfg.get("enabled", False))
 
     X_arr = np.asarray(X, dtype=np.float32)
     y_arr = np.asarray(y, dtype=np.float32).ravel()
@@ -241,13 +254,24 @@ def nested_cv(
                 f"/{len(y_test_outer)}"
             )
         else:
-            preds = train(
-                model,
-                X_train_final, y_train_final,
-                X_val_final, y_val_final,
-                X_test_outer, y_test_outer,
-                cfg,
-            )
+            fitted_model = None
+            if shap_enabled:
+                preds, fitted_model = train(
+                    model,
+                    X_train_final, y_train_final,
+                    X_val_final, y_val_final,
+                    X_test_outer, y_test_outer,
+                    cfg,
+                    return_model=True,
+                )
+            else:
+                preds = train(
+                    model,
+                    X_train_final, y_train_final,
+                    X_val_final, y_val_final,
+                    X_test_outer, y_test_outer,
+                    cfg,
+                )
 
         if model_name == "mdn" and task_type == "binary_classification":
             metrics = classification_metrics(
@@ -259,6 +283,23 @@ def nested_cv(
             metrics = compute_metrics(y_test_outer, preds, task_type)
         report_fold_metrics(metrics, fold + 1, outer_cv, experiment_name, task_type)
         fold_metrics.append(metrics)
+
+        if shap_enabled and model_name != "mdn":
+            try:
+                effective_names = (
+                    [f"PC{i + 1}" for i in range(X_train_final.shape[1])]
+                    if pca is not None else feature_names
+                )
+                explain_fold(
+                    fitted_model, model_name, task_type,
+                    X_background=X_train_final, X_test=X_test_outer,
+                    feature_names=effective_names, fold=fold,
+                    experiment_name=experiment_name, shap_cfg=shap_cfg,
+                    results_dir=Path(results_dir) if results_dir else Path("./results") / experiment_name,
+                )
+            except Exception as e:
+                print(f"  [{experiment_name}] SHAP explanation failed for fold {fold + 1}: {e}")
+
         gc.collect()
 
     aggregated = aggregate_metrics(fold_metrics, task_type, experiment_name)
