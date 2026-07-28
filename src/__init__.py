@@ -10,6 +10,7 @@ from .evaluation import (
 from .hpo import build_model, get_default_search_space
 from .shap_explain import explain_fold
 from .training import train
+from .training_curves import plot_training_curves
 
 __all__ = [
     "nested_cv",
@@ -23,4 +24,5 @@ __all__ = [
     "get_default_search_space",
     "train",
     "explain_fold",
+    "plot_training_curves",
 ]
