@@ -1,0 +1,27 @@
+# Experiment: Linear Regression on every file in data/lucas.
+# data.dir loads each matching file in the folder as its own experiment
+# (bypassing the GWAS illness pipeline). The target column is resolved per
+# file via regex (ends in "_target"), and the first three non-numeric
+# identifier columns are dropped via ignore_columns.
+
+plink2:
+  prepare: false
+
+experiment:
+  run: true
+
+data:
+  dir: "../../../GGS_WKD/WKD_LUCAS/ML_data"
+  target_regex: "_target$"
+  ignore_columns: ["uniprot", "gene", "protein_variant"]
+
+model:
+  name: linear_regression
+  type: ["regression"]
+
+hpo:
+  run: false
+
+evaluation:
+  metrics: [r2, mse, pearson_r2]
+  binary_threshold: null
