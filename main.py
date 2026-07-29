@@ -441,26 +441,34 @@ def main() -> None:
         results_file = results_dir / f"{experiment_name}_{timestamp}.json"
         output = {}
 
-        # ── Optional sampling ─────────────────────────────────────────────────
-        if data_cfg.get("sampling", False):
-            print(f"Sampling data for illness={illness}, p_clump={p}, distribution={dist}...")
-            sampling_metrics = sample(
-                p_value=p, distribution=dist, illness=illness,
-                polars=data_cfg.get("polars", False),
-                chunk_size=data_cfg.get("chunk_size", 100000),
-                total_chunks=data_cfg.get("total_chunks", None),
-                sample_p=data_cfg.get("sample_p", False),
-                gwas_pheno_path=data_cfg.get("gwas_pheno_path"),
-                clumps_path=data_cfg.get("clumps_path"),
-            )
-            output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
+        # ── Load data ─────────────────────────────────────────────────────────
+        if using_custom_data:
+            sep = "," if resolved_data_path.suffix.lower() == ".csv" else "\t"
+            if data_cfg.get("polars", True):
+                df = load_txt_polars(resolved_data_path, sep=sep, chunk_size=chunk_size, total_chunks=total_chunks)
+            else:
+                df = load_txt(resolved_data_path, sep=sep, chunk_size=chunk_size, total_chunks=total_chunks)
         else:
-            data_path = Path(f"./data/sampled/{dist}/sampled_{illness}_p{p}.txt")
-            if not data_path.exists():
-                raise FileNotFoundError(
-                    f"Sampled data not found at {data_path}. "
-                    "Run with sampling: true first."
+            # ── Optional sampling ─────────────────────────────────────────────
+            if data_cfg.get("sampling", False):
+                print(f"Sampling data for illness={illness}, p_clump={p}, distribution={dist}...")
+                sampling_metrics = sample(
+                    p_value=p, distribution=dist, illness=illness,
+                    polars=data_cfg.get("polars", False),
+                    chunk_size=data_cfg.get("chunk_size", 100000),
+                    total_chunks=data_cfg.get("total_chunks", None),
+                    sample_p=data_cfg.get("sample_p", False),
+                    gwas_pheno_path=data_cfg.get("gwas_pheno_path"),
+                    clumps_path=data_cfg.get("clumps_path"),
                 )
+                output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
+            else:
+                data_path = Path(f"./data/sampled/{dist}/sampled_{illness}_p{p}.txt")
+                if not data_path.exists():
+                    raise FileNotFoundError(
+                        f"Sampled data not found at {data_path}. "
+                        "Run with sampling: true first."
+                    )
 
             df = load_illness_data(
                 illness,
@@ -482,9 +490,78 @@ def main() -> None:
             print(f"Original shape {int(df.shape[0] / row_ratio)} samples, {int(df.shape[1] / col_ratio)} features")
 
         df_pandas = df.to_pandas() if hasattr(df, "to_pandas") else df
+
+        # Resolve the target column: an explicit data.target name takes
+        # priority; otherwise data.target_regex is matched against the
+        # dataframe's columns (must match exactly one).
+        target_col = data_cfg.get("target")
+        target_regex = data_cfg.get("target_regex")
+        if not target_col:
+            if not target_regex:
+                raise ValueError("Config must set data.target or data.target_regex")
+            matches = [c for c in df_pandas.columns if re.search(target_regex, c)]
+            if len(matches) != 1:
+                raise ValueError(
+                    f"data.target_regex={target_regex!r} matched {len(matches)} columns "
+                    f"(expected exactly 1): {matches}"
+                )
+            target_col = matches[0]
+            print(f"Resolved target column via regex: {target_col}")
+        iter_cfg["data"]["target"] = target_col
+
+        # ── Marginal correlation with the target ──────────────────────────────
+        # Applied to whatever matrix is about to be trained on, so it also
+        # covers sampling: false (sampled files on disk predate this filter).
+        # Before drop_missing: correlations use every pairwise-complete row, and
+        # dropping a sparse feature here saves the rows it would have cost.
+        # When sampling ran, this is a no-op re-check — the report then simply
+        # describes the final training matrix.
+        # The filter guards against a near-duplicate of the target anchoring the
+        # GWAS feature set, so it is only on by default there; data.dir/data.path
+        # runs opt in by setting data.max_target_corr explicitly.
+        target_corr_stats = None
+        max_target_corr = data_cfg.get("max_target_corr", None if using_custom_data else 0.8)
+        if max_target_corr is not None:
+            df_pandas, target_corr_stats = drop_target_correlated_features(
+                df_pandas, float(max_target_corr), target=target_col,
+            )
+            print(f"  target correlation (max_target_corr={max_target_corr}): kept "
+                  f"{target_corr_stats['n_features_kept']}/{target_corr_stats['n_features_before']} "
+                  f"features ({target_corr_stats['n_features_dropped']} dropped"
+                  + (f": {', '.join(target_corr_stats['dropped_columns'])}"
+                     if target_corr_stats["dropped_columns"] else "") + ")")
+
+        # ── Optional: drop rows with any missing value (complete-case matrix) ──
+        # Feature columns (other phenotypes) can be null at a phenotype's selec
+        # SNPs; enable data.drop_missing to train on a fully non-null matrix.
+        drop_missing_stats = None
+        if data_cfg.get("drop_missing", False):
+            n_before = len(df_pandas)
+            df_pandas = df_pandas.dropna().reset_index(drop=True)
+            n_after = len(df_pandas)
+            drop_missing_stats = {
+                "n_before": n_before,
+                "n_after": n_after,
+                "n_dropped": n_before - n_after,
+                "frac_dropped": (n_before - n_after) / n_before if n_before else 0.0,
+            }
+            print(f"  drop_missing: kept {n_after:,}/{n_before:,} rows with "
+                  f"no missing values ({n_before - n_after:,} dropped)")
+
+        # data.ignore_columns lists columns (e.g. ID/metadata columns) to drop
+        # from the feature matrix in addition to the target column.
+        ignore_cols = [c for c in data_cfg.get("ignore_columns", []) if c in df_pandas.columns]
         id_cols = [col for col in ["ID"] if col in df_pandas.columns]
-        X = df_pandas.drop(columns=[data_cfg["target"]] + id_cols)
-        y = df_pandas[data_cfg["target"]]
+        drop_cols = list(dict.fromkeys([target_col] + id_cols + ignore_cols))
+        X = df_pandas.drop(columns=drop_cols)
+        y = df_pandas[target_col]
+
+        # Predictor features actually used from the sampled file (i.e. the
+        # phenotype columns that survived the sampling-time column pruning).
+        selected_features = {
+            "n_features": int(X.shape[1]),
+            "features": list(X.columns),
+        }
 
         # ── Optional random row subsampling (distinct from row_ratio) ─────────
         if rand_frac < 1.0:
