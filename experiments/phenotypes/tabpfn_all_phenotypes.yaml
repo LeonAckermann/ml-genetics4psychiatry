@@ -24,7 +24,7 @@ data:
   # illness blank -> auto-detected. With min_density set, the phenotype list is
   # taken from the density-frontier JSON (the same features used for clumping)
   # instead of info_csv_path; unset min_density to fall back to info.csv.
-  illness: ["BCT_EO"]
+  illness: []
   min_density: 0.8
   density_json: "./data/pipeline/analysis/dense_density.json"
   gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
@@ -32,6 +32,8 @@ data:
   p_clump: [0.001]
   distribution: ["low"]
   target: Z
+  min_complete_frac: 0.95
+  max_target_corr: 0.8
   drop_missing: true   # drop rows with any null feature/target before training
   test_size: 0.2
   n_splits: 5
@@ -82,7 +84,7 @@ shap:
   random_state: 0
   background_size: 100
   # Rows explained per fold (cost is per row). Drop the key to explain them all.
-  max_explain_rows: 1
+  max_explain_rows: 
   # Values are averaged over a fold's test rows, then over the outer folds. The
   # summary lands in the result JSON under hpo.shap_mean_values; the averaged
   # object itself in results/<experiment>/shap/interaction_values_mean.json

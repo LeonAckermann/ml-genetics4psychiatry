@@ -24,13 +24,15 @@ data:
   # illness blank -> auto-detected. With min_density set, the phenotype list is
   # taken from the density-frontier JSON (the same features used for clumping)
   # instead of info_csv_path; unset min_density to fall back to info.csv.
-  illness: ["BCT_BASO"]
+  illness: []
   min_density: 0.8
   density_json: "./data/pipeline/analysis/dense_density.json"
   gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
   info_csv_path: "./data/pipeline/input/gwas_pheno/info.csv"
   p_clump: [0.001]
   distribution: ["low"]
+  min_complete_frac: 0.95
+  max_target_corr: 0.8
   target: Z
   drop_missing: true   # drop rows with any null feature/target before training
   test_size: 0.2
@@ -55,14 +57,14 @@ model:
 
 hpo:
   run: true
-  n_trials: 1
+  n_trials: 30
   outer_cv: 5
-  inner_cv: 3
+  inner_cv: 5
   search_space:
     hidden_dim: [32, 128]
     n_layers: [1, 8]
     dropout: [0.1, 0.8]
-    learning_rate: [1.0.0e-6, 1.0.0e-2]    
+    learning_rate: [1.0e-6, 1.0e-2]    
     weight_decay: [0.0, 0.0001]
     batch_size: [16, 64]
     epochs: [20, 100]
