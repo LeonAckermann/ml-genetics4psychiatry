@@ -74,3 +74,32 @@ hpo:
 evaluation:
   metrics: [r2, mse, pearson_r2]
   binary_threshold: null
+
+# Per-feature mean SHAP values, averaged over the outer folds, written to the
+# result JSON under hpo.shap_mean_values. plots: false skips every figure —
+# only the numbers are produced.
+shap:
+  enabled: true
+  # interactions: false -> index "SV",    max_order 1  (plain Shapley values)
+  # interactions: true  -> index "k-SII", max_order 2  (pairwise interactions)
+  # index / max_order override those defaults (e.g. max_order: 3 for triples,
+  # or index: FSII). Only the linear family and TabPFN are explained.
+  interactions: true
+  # index: k-SII
+  # max_order: 2
+  # Coalitions sampled per explained row. "auto" asks for the exhaustive
+  # 2**n_features and caps it at max_budget; above the cap shapiq samples and
+  # flags the result as estimated.
+  budget: auto
+  max_budget: 2048
+  random_state: 0
+  background_size: 100
+  # Rows explained per fold (cost is per row). Drop the key to explain them all.
+  max_explain_rows: 
+  # Values are averaged over a fold's test rows, then over the outer folds. The
+  # summary lands in the result JSON under hpo.shap_mean_values; the averaged
+  # object itself in results/<experiment>/shap/interaction_values_mean.json
+  # (reload with shapiq.InteractionValues.from_json_file).
+  plots: true
+  max_display: 20
+

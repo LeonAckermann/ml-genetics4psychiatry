@@ -1,17 +1,11 @@
-# Experiment: Linear Regression predicting BCT_EO's own Z-score from the
-# other phenotype columns in all_z_scores_imputed.txt, restricted to
-# BCT_EO's own clumped SNPs (output/clumped_BCT_EO.clumps) under p_clump.
+# Experiment: simple Linear Regression run for every include=1 phenotype
+# from info.csv that's present in all_z_scores_imputed.txt (currently
+# BCT_BASO and BCT_EO). Leaving data.illness blank makes main.py
+# auto-detect the phenotype list instead of enumerating it by hand.
 #
-# HPO is enabled with the minimum feasible settings (n_trials: 1,
-# inner_cv: 2) so the run exercises the HPO code path cheaply -- inner_cv
-# can't go below 2, sklearn's KFold requires n_splits >= 2. In practice
-# linear_regression (plain OLS) has no tunable hyperparameters, so
-# main.py auto-detects the empty search space and forces n_trials=0
-# regardless of the setting below -- this ends up being a plain
-# evaluation either way.
-#
-# SHAP explanation is enabled: each outer fold's model is explained on its
-# test set, plots saved to results/<experiment>/shap/fold_<k>/.
+# For each phenotype: predicts its own Z-score from every other phenotype
+# column, restricted to its own clumped SNPs (output/clumped_<phenotype>.clumps)
+# under p_clump.
 
 construct_gwas_mri:
   run: false
@@ -26,10 +20,32 @@ plink2:
   prepare: false
 
 data:
-  illness: ["BCT_EO"]
+  # illness blank -> auto-detected. With min_density set, the phenotype list is
+  # taken from the density-frontier JSON (the same features used for clumping)
+  # instead of info_csv_path; unset min_density to fall back to info.csv.
+  illness: ["BCT_BASO"]
+  min_density: 0.8
+  density_json: "./data/pipeline/analysis/dense_density.json"
+  gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
+  info_csv_path: "./data/pipeline/input/gwas_pheno/info.csv"
   p_clump: [0.001]
   distribution: ["low"]
   target: Z
+  # Feature-column pruning during sampling (drops sparse phenotype columns so the
+  # complete-case matrix keeps rows). Use ONE of the following:
+  #   min_complete_frac: auto-pick the densest features so that >= this fraction
+  #                      of rows stay complete (takes precedence if both set).
+  #   max_col_missing:   drop any feature column whose null-rate exceeds this.
+  min_complete_frac: 0.95
+  # max_col_missing: 0.05
+  # Marginal |Pearson r| with the target. Applied twice, independently: inside
+  # sampling (before the densest-feature selection above, reported under
+  # sampling_metrics_*.target_correlation) and again on the loaded matrix before
+  # training, so it holds with sampling: false too — reported at the result JSON
+  # top level as target_correlation. Features above this floor are dropped;
+  # set to null to disable both.
+  max_target_corr: 0.8
+  drop_missing: true   # then drop the residual rows with any null before training
   test_size: 0.2
   n_splits: 5
   save_splits: true
@@ -39,8 +55,11 @@ data:
   col_ratio: [1.0]
   top_rows: true
   top_cols: true
-  sampling: true
-  gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
+  # min_complete_frac / max_col_missing only run inside the sampling stage; with
+  # sampling: false the existing data/sampled/<dist>/sampled_<illness>_p<p>.txt is
+  # reused as written. max_target_corr applies either way (see above).
+  sampling: false
+  invert: true
 
 experiment:
   run: true
@@ -50,21 +69,47 @@ model:
   type: ["regression"]
 
 hpo:
-  run: true
-  n_trials: 1
-  inner_cv: 2
+  run: false
 
 evaluation:
   metrics: [r2, mse, pearson_r2]
   binary_threshold: null
 
+
 shap:
   enabled: true
+  # interactions: false -> index "SV",    max_order 1  (plain Shapley values)
+  # interactions: true  -> index "k-SII", max_order 2  (pairwise interactions)
+  # index / max_order override those defaults (e.g. max_order: 3 for triples,
+  # or index: FSII). Only the linear family and TabPFN are explained.
+  interactions: false
+  # index: k-SII
+  # max_order: 2
+  # Coalitions sampled per explained row. "auto" asks for the exhaustive
+  # 2**n_features and caps it at max_budget; above the cap shapiq samples and
+  # flags the result as estimated.
+  budget: auto
+  max_budget: 2048
+  random_state: 0
+  # Background rows the marginal imputer uses per coalition. Defaults to the
+  # whole background (background_size); shapiq's own default of 100 resamples it
+  # and leaves a per-feature offset that averaging cannot remove. Cost scales
+  # with it, so background_size is the accuracy/cost dial.
   background_size: 100
+  # imputer_sample_size: 100
+  # Rows explained per fold (cost is per row). Drop the key to explain them all.
+  max_explain_rows: 50
+  # Values are averaged over a fold's test rows, then over the outer folds. The
+  # summary lands in the result JSON under hpo.shap_mean_values; the averaged
+  # object itself in results/<experiment>/shap/interaction_values_mean.json
+  # (reload with shapiq.InteractionValues.from_json_file).
+  plots: true
   max_display: 20
-  dependence_features: ["BCT_BASO"]
-  dependence_dpi: 50
-  force_stacked: false
-  waterfall_observations: []
-  permutation_max_evals: 500
-  tabpfn_budget: 128
+  # The beeswarm keeps the per-row values instead of an average: one dot per
+  # explained sample, positioned by its signed attribution and coloured by its
+  # feature value. Per fold it covers that fold's test rows; the across-fold one
+  # pools them, which (the outer folds being disjoint) is one dot per sample.
+  beeswarm_max_rows: 5000
+  abbreviate_names: false
+  # joblib workers for explaining a fold's rows. Leave unset (serial) for TabPFN.
+  # n_jobs: -1

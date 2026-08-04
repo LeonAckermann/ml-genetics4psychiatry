@@ -20,7 +20,7 @@ from .evaluation import (
     report_fold_metrics,
 )
 from .hpo import NEEDS_SCALING, NEEDS_VAL_SPLIT, build_model, get_default_search_space, suggest_params
-from .shap_explain import explain_fold
+from .shap_explain import aggregate_fold_shap, explain_fold
 from .training import train, train_mdn
 from .training_curves import plot_training_curves
 
@@ -152,6 +152,7 @@ def nested_cv(
     fold_confidence_metrics: list[list[dict]] = []  # populated only for MDN
     fold_init_params: list[dict] = []               # populated only for MDN
     fold_training_curves: list[dict] = []           # populated only for epoch-based models
+    fold_shap: list[dict] = []                      # populated only when shap.enabled
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -313,13 +314,16 @@ def nested_cv(
                     [f"PC{i + 1}" for i in range(X_train_final.shape[1])]
                     if pca is not None else feature_names
                 )
-                explain_fold(
+                fold_summary = explain_fold(
                     fitted_model, model_name, task_type,
                     X_background=X_train_final, X_test=X_test_outer,
                     feature_names=effective_names, fold=fold,
                     experiment_name=experiment_name, shap_cfg=shap_cfg,
                     results_dir=Path(results_dir) if results_dir else Path("./results") / experiment_name,
+                    y_background=y_train_final,
                 )
+                if fold_summary:
+                    fold_shap.append(fold_summary)
             except Exception as e:
                 print(f"  [{experiment_name}] SHAP explanation failed for fold {fold + 1}: {e}")
 
@@ -343,7 +347,8 @@ def nested_cv(
             out_root = Path(results_dir) if results_dir else Path("./results") / experiment_name
             try:
                 out = plot_training_curves(
-                    fold_training_curves, out_root,
+                    fold_training_curves,
+                    out_root,
                     experiment_name=experiment_name,
                     dir_name=curves_cfg.get("dir", "training"),
                 )
@@ -351,6 +356,17 @@ def nested_cv(
                     print(f"[{experiment_name}] Training curves written to {out}")
             except Exception as e:
                 print(f"[{experiment_name}] Training-curve plots failed: {e}")
+    if fold_shap:
+        # Mean attribution (and interactions, in interaction mode) averaged over
+        # the outer folds; also writes the averaged InteractionValues and its
+        # plots under <results_dir>/shap/. Folds whose explanation raised are
+        # simply absent, so this reflects the folds that produced values.
+        result["shap_mean_values"] = aggregate_fold_shap(
+            fold_shap,
+            results_dir=Path(results_dir) if results_dir else Path("./results") / experiment_name,
+            experiment_name=experiment_name,
+            shap_cfg=shap_cfg,
+        )
     return result
 
 
