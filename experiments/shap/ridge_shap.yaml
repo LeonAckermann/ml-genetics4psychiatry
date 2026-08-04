@@ -57,11 +57,38 @@ evaluation:
 
 shap:
   enabled: true
+  # interactions: false -> index "SV",    max_order 1  (plain Shapley values)
+  # interactions: true  -> index "k-SII", max_order 2  (pairwise interactions)
+  # index / max_order override those defaults (e.g. max_order: 3 for triples,
+  # or index: FSII). Only the linear family and TabPFN are explained.
+  interactions: false
+  # index: k-SII
+  # max_order: 2
+  # Coalitions sampled per explained row. "auto" asks for the exhaustive
+  # 2**n_features and caps it at max_budget; above the cap shapiq samples and
+  # flags the result as estimated.
+  budget: auto
+  max_budget: 2048
+  random_state: 0
+  # Background rows the marginal imputer uses per coalition. Defaults to the
+  # whole background (background_size); shapiq's own default of 100 resamples it
+  # and leaves a per-feature offset that averaging cannot remove. Cost scales
+  # with it, so background_size is the accuracy/cost dial.
   background_size: 100
+  # imputer_sample_size: 100
+  # Rows explained per fold (cost is per row). Drop the key to explain them all.
+  max_explain_rows: 50
+  # Values are averaged over a fold's test rows, then over the outer folds. The
+  # summary lands in the result JSON under hpo.shap_mean_values; the averaged
+  # object itself in results/<experiment>/shap/interaction_values_mean.json
+  # (reload with shapiq.InteractionValues.from_json_file).
+  plots: true
   max_display: 20
-  dependence_features: ["BCT_BASO"]
-  dependence_dpi: 50
-  force_stacked: false
-  waterfall_observations: []
-  permutation_max_evals: 500
-  tabpfn_budget: 128
+  # The beeswarm keeps the per-row values instead of an average: one dot per
+  # explained sample, positioned by its signed attribution and coloured by its
+  # feature value. Per fold it covers that fold's test rows; the across-fold one
+  # pools them, which (the outer folds being disjoint) is one dot per sample.
+  beeswarm_max_rows: 5000
+  abbreviate_names: false
+  # joblib workers for explaining a fold's rows. Leave unset (serial) for TabPFN.
+  # n_jobs: -1

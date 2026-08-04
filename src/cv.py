@@ -291,13 +291,16 @@ def nested_cv(
                     [f"PC{i + 1}" for i in range(X_train_final.shape[1])]
                     if pca is not None else feature_names
                 )
-                fold_shap.append(explain_fold(
+                fold_summary = explain_fold(
                     fitted_model, model_name, task_type,
                     X_background=X_train_final, X_test=X_test_outer,
                     feature_names=effective_names, fold=fold,
                     experiment_name=experiment_name, shap_cfg=shap_cfg,
                     results_dir=Path(results_dir) if results_dir else Path("./results") / experiment_name,
-                ))
+                    y_background=y_train_final,
+                )
+                if fold_summary:
+                    fold_shap.append(fold_summary)
             except Exception as e:
                 print(f"  [{experiment_name}] SHAP explanation failed for fold {fold + 1}: {e}")
 
@@ -316,10 +319,16 @@ def nested_cv(
     if fold_init_params:
         result["fold_init_params"] = fold_init_params
     if fold_shap:
-        # Per-feature mean SHAP averaged over the outer folds. Folds whose
-        # explanation raised are simply absent, so this reflects the folds that
-        # actually produced values.
-        result["shap_mean_values"] = aggregate_fold_shap(fold_shap)
+        # Mean attribution (and interactions, in interaction mode) averaged over
+        # the outer folds; also writes the averaged InteractionValues and its
+        # plots under <results_dir>/shap/. Folds whose explanation raised are
+        # simply absent, so this reflects the folds that produced values.
+        result["shap_mean_values"] = aggregate_fold_shap(
+            fold_shap,
+            results_dir=Path(results_dir) if results_dir else Path("./results") / experiment_name,
+            experiment_name=experiment_name,
+            shap_cfg=shap_cfg,
+        )
     return result
 
 

@@ -61,11 +61,12 @@ hpo:
     hidden_dim: [32, 128]
     n_layers: [1, 8]
     dropout: [0.1, 0.8]
-    learning_rate: [1e-6, 1e-2]
+    learning_rate: [1.0e-6, 1.0e-2]
     weight_decay: [0.0, 0.0001]
     batch_size: [16, 64]
-    epochs: [20, 60]
+    epochs: [20, 100]
     patience: [5, 20]
+
 
 load_best_params: false
 
