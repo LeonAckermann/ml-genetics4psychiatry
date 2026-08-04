@@ -15,6 +15,42 @@ The pipeline is orchestrated by [`main.py`](main.py), which reads a YAML config 
 
 Each stage can be toggled independently through the YAML config. Stages 1–3 are data-preparation steps that only need to run once per illness; stage 4 is the repeatable training loop.
 
+A standalone pre-flight diagnostic — [`whitening/`](whitening/README.md) — checks a phenotype covariance/intercept matrix (e.g. [`official_intercept_matrix.csv`](data/pipeline/input/gwas_pheno/official_intercept_matrix.csv)) for the failure modes that make whitening by it unreliable, before any stage inverts it. It is run manually (or via [`batch_scripts/whitening_preflight.sh`](batch_scripts/whitening_preflight.sh)), not from `main.py`'s config loop — see "0. Whitening pre-flight" below.
+
+## 0. Whitening pre-flight
+
+**Code:** [`whitening/`](whitening/README.md)
+**Batch script:** [`batch_scripts/whitening_preflight.sh`](batch_scripts/whitening_preflight.sh)
+
+Not part of the `main.py` config loop — a standalone diagnostic to run before
+any stage whitens SNP z-scores by a phenotype covariance/intercept matrix
+(e.g. divides by it, inverts it, or feeds it to a `Sigma^{-1/2}` transform).
+
+Reframes "the condition number needs to be low" into the question that
+actually matters: is the estimation error small relative to the smallest
+eigenvalue you're about to divide by (`||E||_2 / lambda_min`), not whether
+`kappa` looks respectable. It runs eight checks — column alignment, symmetry,
+missing/defaulted entries, diagonal form, spectrum shape, positive
+definiteness, sign consistency, and null calibration (whiten simulated
+`z ~ N(0, Sigma)` and check the result is actually `N(0, I)`, tail included) —
+plus an optional two-estimate error probe and a regularisation-strength sweep
+that picks the smallest ridge/floor/Higham parameter that passes calibration.
+
+```bash
+# Fast toy target (2 phenotypes, generated on the fly):
+python -m whitening.toy --out-dir data/pipeline/input/whitening_toy
+python -m whitening.run --config whitening/configs/toy.yaml
+
+# The real 192-trait intercept matrix — same checklist, one config swap:
+python -m whitening.run --config whitening/configs/full_intercept_matrix.yaml
+```
+
+Writes `results/whitening/<name>/whitening_report.{json,txt}` plus spectrum,
+calibration-tail, and sweep plots. See [`whitening/README.md`](whitening/README.md)
+for what each check catches and why; running it against the current intercept
+matrix reports **FAIL** (not positive semi-definite, non-unit diagonal, exact-
+zero pairwise defaults) — real findings, not a loader bug.
+
 ## 1. Construct GWAS–MRI matrix
 
 **Config key:** `construct_gwas_mri.run: true`
@@ -221,6 +257,7 @@ All batch scripts are in [`batch_scripts/`](batch_scripts/) and target a SLURM c
 | [`tabpfn_mdd.sh`](batch_scripts/tabpfn_mdd.sh) | TabPFN inference for MDD (GPU) | 100 GB RAM, A100 GPU |
 | [`finetune_tabpfn_mdd.sh`](batch_scripts/finetune_tabpfn_mdd.sh) | TabPFN fine-tuning for MDD (GPU) | GPU partition |
 | [`unzip.sh`](batch_scripts/unzip.sh) | Extract raw GWAS archives | — |
+| [`whitening_preflight.sh`](batch_scripts/whitening_preflight.sh) | Run whitening pre-flight diagnostics on a covariance/intercept matrix | 32 GB RAM, 4 CPUs |
 
 ## Directory layout (data flow)
 

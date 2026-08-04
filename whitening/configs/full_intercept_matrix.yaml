@@ -1,0 +1,99 @@
+# Whitening pre-flight — full 192-trait LDSC/JASS intercept matrix.
+#
+# Same checklist as toy.yaml, pointed at the real estimator output. This is
+# the "scale it up" config the toy target is meant to rehearse for.
+#
+# Run:
+#   python -m whitening.run --config whitening/configs/full_intercept_matrix.yaml
+#
+# What's different from the toy target, and why each knob is set the way it is:
+#
+# - z.path currently points at all_z_scores_imputed.txt, which only has 3 of
+#   the 192 trait columns (BCT_BASO, BCT_EO, BCT_HCT) — the rest live
+#   per-trait, per-chromosome under data/pipeline/input/gwas_pheno/imputed/
+#   (z_{TRAIT}_chr{1..22}.txt), unjoined. That partial coverage only limits
+#   checks 1 (alignment) and 7b (strand-ambiguous SNPs) to those 3 traits —
+#   it does NOT restrict Sigma for the other checks (spectrum, PD-ness,
+#   calibration, sweep, sign consistency all still run on the full 192x192
+#   matrix; see structure.check_alignment's docstring). Point z.path at a
+#   file joining all 192 traits (e.g. via
+#   dataloader.pipeline.construct_gwas_phenotype) to extend checks 1/7b to
+#   the full matrix too. Check 8 (calibration) never needed this — it
+#   simulates its own null internally.
+# - No probe.sigma2_path by default: there is currently only one estimate of
+#   this matrix on disk. Supply a second pairwise-estimate variant (e.g. a
+#   different SNP-count floor, or LDSC on a different SNP subset — see
+#   whitening/probe.py's caveat about same_estimand) to unlock check 0, which
+#   is the single most informative number for deciding how hard to regularise.
+# - transform.standardize: true, forced — this matrix's diagonal is raw
+#   LDSC/JASS intercepts (1 + a_k) ranging ~0.85-3.2, not unit variance (see
+#   check 4). Whitening in ZCA-cor form is the explicit, defensible choice
+#   here; "auto" would also pick it, this just makes it visible in the config.
+
+sigma:
+  path: data/pipeline/input/gwas_pheno/official_intercept_matrix.csv
+
+z:
+  path: data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt # see note above — set once trait-column alignment is confirmed
+  id_cols: [ID, chrom, pos, A0, A1]
+  max_snps: 200000
+
+alignment:
+  on_mismatch: warn   # error | warn — warn proceeds on the full Sigma regardless
+
+symmetry:
+  tol: 1.0e-10
+
+missing:
+  zero_is_default: true
+  warn_frac: 0.01
+
+diagonal:
+  tol: 1.0e-6
+
+transform:
+  standardize: true
+  transform: zca-cor
+
+spectrum:
+  gap_ratio: 5.0
+  eps_rel: 1.0e-8
+
+probe:
+  sigma2_path: null   # see note above
+  same_estimand: true
+
+sign_check:
+  # official_intercept_matrix.csv's trait labels are "{Consortium}_{Outcome}"
+  # (e.g. BCT_BASO); reference.csv only has those split out, so the key is
+  # composed from both columns. Matches 191/192 traits (one hyphenated
+  # consortium name, CARDIOGRAMPLUSC4D-META, doesn't roundtrip - harmless,
+  # it just falls into "unmapped_traits" in the check's output).
+  groups_path: data/pipeline/input/gwas_pheno/reference.csv
+  key_col: [Consortium, Outcome]
+  key_sep: "_"
+  group_col: Category
+  strong_thresh: 0.3
+
+regularization:
+  method: ridge
+  alpha: 0.0   # 0 => auto-floor to PD only; run the sweep below to pick a real value
+
+calibration:
+  run: true
+  n_null: 20000
+  seed: 0
+  offdiag_tol: 0.05
+  inflation_tol: 1.15
+  tail_ratio_tol: 2.0
+
+sweep:
+  run: true
+  method: ridge
+  alphas: [0.0, 0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
+  tail_ratio_tol: 2.0
+
+report:
+  out_dir: results/whitening/full_intercept_matrix
+  stem: whitening_report
+  plots: true
