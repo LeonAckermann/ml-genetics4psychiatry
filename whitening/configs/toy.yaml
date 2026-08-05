@@ -1,0 +1,79 @@
+# Whitening pre-flight — toy 2-phenotype target.
+#
+# Fast, self-contained sanity check that every stage of the checklist runs
+# and reports sensible numbers before pointing this at the real 192-trait
+# intercept matrix (see full_intercept_matrix.yaml). Generate the inputs with:
+#
+#   python -m whitening.toy --out-dir data/pipeline/input/whitening_toy
+#
+# Expect: kappa ~= 2.3 (rho=0.55 -> (1+rho)/(1-rho) ~= 3.4 at rho=0.55, tune
+# via toy.py --rho), no regularisation needed, full calibration pass.
+#
+# Run:
+#   python -m whitening.run --config whitening/configs/toy.yaml
+
+sigma:
+  path: data/pipeline/input/whitening_toy/Sigma1.csv
+
+z:
+  path: data/pipeline/input/whitening_toy/Z.txt
+  id_cols: [ID, A0, A1]
+  max_snps: 200000
+
+alignment:
+  on_mismatch: error   # error | warn (warn proceeds on the FULL Sigma; see structure.check_alignment)
+
+symmetry:
+  tol: 1.0e-10
+
+missing:
+  zero_is_default: true
+  warn_frac: 0.01
+
+diagonal:
+  tol: 1.0e-6
+
+transform:
+  standardize: auto    # auto | true | false — rescale to correlation form
+  transform: zca        # zca | zca-cor | pca | cholesky
+
+spectrum:
+  gap_ratio: 5.0
+  eps_rel: 1.0e-8
+
+# Second estimate for the two-estimate error probe — here a noisy perturbation
+# of the same toy matrix (see whitening/toy.py). Set same_estimand: false if
+# Sigma2 comes from a structurally different estimator (naive vs LDSC/JASS) —
+# see whitening/probe.py's module docstring for why that changes the reading.
+probe:
+  sigma2_path: data/pipeline/input/whitening_toy/Sigma2.csv
+  same_estimand: true
+
+sign_check:
+  groups_path: data/pipeline/input/whitening_toy/groups.csv
+  key_col: trait
+  group_col: group
+  strong_thresh: 0.3
+
+regularization:
+  method: ridge   # ridge | floor | higham | none
+  alpha: 0.0      # 0 => auto-floor only if not already PD
+
+calibration:
+  run: true
+  n_null: 20000
+  seed: 0
+  offdiag_tol: 0.05
+  inflation_tol: 1.15
+  tail_ratio_tol: 2.0
+
+sweep:
+  run: true
+  method: ridge
+  alphas: [0.0, 0.001, 0.01, 0.05, 0.1, 0.2]
+  tail_ratio_tol: 2.0
+
+report:
+  out_dir: results/whitening/toy
+  stem: whitening_report
+  plots: true
