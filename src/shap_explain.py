@@ -42,6 +42,7 @@ are disjoint that is exactly one explanation per sample in the dataset.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -161,6 +162,8 @@ def _build_explainer(
     the marginal imputer's kwargs and raise -- so it gets `random_state` instead.
     """
     import shapiq
+    from tabpfn_extensions.interpretability import shapiq as tabpfn_shapiq
+
 
     native = _native_estimator(fitted_model)
     background_size = int(shap_cfg.get("background_size", 100))
@@ -170,11 +173,17 @@ def _build_explainer(
         if bg_y is None:
             raise ValueError("TabPFN explanations need the fold's training labels")
         empty_prediction = float(np.mean(native.predict(X_explain)))
-        return shapiq.Explainer(
-            model=native, data=bg_X, labels=bg_y,
-            index=index, max_order=max_order,
-            empty_prediction=empty_prediction,
-        )
+        import os
+
+        # Prevent OpenMP/MKL thread conflicts with TabPFN's PyTorch backend
+        os.environ.setdefault("OMP_NUM_THREADS", "1")
+        os.environ.setdefault("MKL_NUM_THREADS", "1")
+        #return shapiq.Explainer(
+        #    model=native, data=bg_X, labels=bg_y,
+        #    index=index, max_order=max_order,
+        #    empty_prediction=empty_prediction,
+        #)
+        return tabpfn_shapiq.get_tabpfn_imputation_explainer(model=native, data=bg_X, index=index, max_order=max_order)
 
     # sample_size is how many background rows the marginal imputer draws per
     # coalition to estimate that coalition's expected prediction. shapiq defaults

@@ -47,8 +47,9 @@ class TabPFNModel:
         # Pinned to 2.5 rather than left on the package default: the SHAP path
         # (src/shap_explain.py) explains TabPFN with shapiq's imputation
         # explainer, which 2.6 does not support.
-        self.model = TabPFNRegressor(fit_mode="low_memory").create_default_for_version(
-            ModelVersion.V2_5)
+        #self.model = TabPFNRegressor(fit_mode="low_memory").create_default_for_version(ModelVersion.V2_5)
+        self.model = TabPFNRegressor(model_path="tabpfn-v3-regressor-v3_20260506_ood.ckpt", fit_mode="fit_with_cache",inference_config={"PASSTHROUGH_INF": True},
+)
 
     def fit(self, X_train, y_train):
         self.model.fit(X_train, y_train)
