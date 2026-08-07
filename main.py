@@ -390,7 +390,21 @@ def main() -> None:
             + (f", rand={rand_frac:g}"                   if rand_frac  < 1.0   else "")
             + (f", pca={pca_var}"                        if pca_var is not None else "")
         )
-        experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}"
+        # Reflects data.whitening from the config, not the runtime fit result --
+        # transform_method is a config value known up front, so the filename
+        # can be built before results_dir is created below (whitening itself
+        # runs later, after the data is loaded).
+        _whitening_cfg_for_name = data_cfg.get("whitening")
+        _whitening_enabled_for_name = (
+            bool(_whitening_cfg_for_name) if isinstance(_whitening_cfg_for_name, bool)
+            else bool((_whitening_cfg_for_name or {}).get("enabled", False))
+        )
+        whitening_suffix = ""
+        if _whitening_enabled_for_name:
+            _wcfg_for_name = _whitening_cfg_for_name if isinstance(_whitening_cfg_for_name, dict) else {}
+            whitening_suffix = f"_whitening_{_wcfg_for_name.get('transform_method', 'zca')}"
+
+        experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}"
         results_dir = Path("./results") / experiment_name
         results_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -424,7 +438,8 @@ def main() -> None:
             # The feature-pruning knobs all live inside sample(); with sampling
             # off they are silently inert and the pre-existing sampled file is
             # used as-is (whatever pruning it was written with). Say so, rather
-            # than letting the config look like it applied.
+            # than letting the config look like it applied. (whitening is NOT
+            # in this list — it runs independently of sampling, below.)
             inert = [k for k in ("max_target_corr", "min_complete_frac", "max_col_missing")
                      if data_cfg.get(k) is not None]
             if inert:
@@ -453,28 +468,15 @@ def main() -> None:
 
         df_pandas = df.to_pandas() if hasattr(df, "to_pandas") else df
 
-        # ── Marginal correlation with the target ──────────────────────────────
-        # Applied to whatever matrix is about to be trained on, so it also
-        # covers sampling: false (sampled files on disk predate this filter).
-        # Before drop_missing: correlations use every pairwise-complete row, and
-        # dropping a sparse feature here saves the rows it would have cost.
-        # When sampling ran, this is a no-op re-check — the report then simply
-        # describes the final training matrix.
-        target_corr_stats = None
-        max_target_corr = data_cfg.get("max_target_corr", 0.8)
-        if max_target_corr is not None:
-            df_pandas, target_corr_stats = drop_target_correlated_features(
-                df_pandas, float(max_target_corr), target=data_cfg["target"],
-            )
-            print(f"  target correlation (max_target_corr={max_target_corr}): kept "
-                  f"{target_corr_stats['n_features_kept']}/{target_corr_stats['n_features_before']} "
-                  f"features ({target_corr_stats['n_features_dropped']} dropped"
-                  + (f": {', '.join(target_corr_stats['dropped_columns'])}"
-                     if target_corr_stats["dropped_columns"] else "") + ")")
-
         # ── Optional: drop rows with any missing value (complete-case matrix) ──
         # Feature columns (other phenotypes) can be null at a phenotype's selec
         # SNPs; enable data.drop_missing to train on a fully non-null matrix.
+        # Runs before whitening (moved here from after max_target_corr) so
+        # drop_missing_stats reports the true missingness in the loaded data —
+        # apply_whitening also drops incomplete rows internally, and with
+        # drop_missing running first that inner drop becomes a no-op, keeping
+        # the row-count accounting in one place instead of split across two
+        # silently-overlapping steps.
         drop_missing_stats = None
         if data_cfg.get("drop_missing", False):
             n_before = len(df_pandas)
@@ -488,6 +490,92 @@ def main() -> None:
             }
             print(f"  drop_missing: kept {n_after:,}/{n_before:,} rows with "
                   f"no missing values ({n_before - n_after:,} dropped)")
+
+        # ── Optional whitening (data.whitening in the YAML) ─────────────────────
+        # Decorrelates the target and the surviving features by Sigma (the
+        # LDSC/JASS intercept covariance) — removes nuisance cross-trait
+        # correlation (sample overlap, population structure) that Sigma
+        # captures, before the blunt target-correlation cutoff below gets a
+        # chance to act on it. Runs here — independent of data.sampling,
+        # exactly once, on whatever matrix is about to be trained on — rather
+        # than inside sample(), so it isn't skipped when sampling: false reuses
+        # an existing file, and can't be double-applied when sampling: true
+        # does write a fresh one. See dataloader/whitening.py.
+        whitening_cfg = data_cfg.get("whitening")
+        whitening_enabled = (
+            bool(whitening_cfg) if isinstance(whitening_cfg, bool)
+            else bool((whitening_cfg or {}).get("enabled", False))
+        )
+        whitening_stats = None
+        if whitening_enabled:
+            if not data_cfg.get("gwas_pheno_path"):
+                raise ValueError(
+                    "data.whitening requires data.gwas_pheno_path — Sigma's "
+                    "trait labels only match the gwas_pheno phenotype panel's "
+                    "column names, not the MRI-phenotype pipeline's."
+                )
+            from dataloader.whitening import apply_whitening, fit_whitener
+
+            wcfg = whitening_cfg if isinstance(whitening_cfg, dict) else {}
+            id_cols_pre = [c for c in ["ID"] if c in df_pandas.columns]
+            feature_cols = [c for c in df_pandas.columns
+                             if c not in id_cols_pre + [data_cfg["target"]]]
+            fit = fit_whitener(
+                sigma_path=wcfg.get(
+                    "sigma_path", "data/pipeline/input/gwas_pheno/official_intercept_matrix.csv"),
+                target=illness, feature_names=feature_cols,
+                method=wcfg.get("method", "ridge"),
+                n_null=int(wcfg.get("n_null", 5000)),
+                tail_ratio_tol=float(wcfg.get("tail_ratio_tol", 2.0)),
+                seed=int(wcfg.get("seed", 0)),
+                # False -> sigma_path is assumed already PD as a whole (e.g.
+                # pre-regularized via `python -m dataloader.whitening --out`);
+                # every [target]+features submatrix of a PD matrix is itself
+                # PD, so no per-target search is needed. True (default) keeps
+                # the null-calibration auto-search for a raw, unregularized Sigma.
+                search_alpha=bool(wcfg.get("search_alpha", False)),
+                transform_method=wcfg.get("transform_method", "zca")
+            )
+            df_pandas, whitening_stats = apply_whitening(
+                df_pandas, fit, target_col=data_cfg["target"])
+            skipped = whitening_stats["sweep"].get("skipped")
+            if skipped == "search_alpha=False -- Sigma assumed already PD":
+                header = (f"loaded SPD matrix, Ridge regularization skipped "
+                          f"(lambda_min={whitening_stats['lambda_min_raw']:.4g})")
+            elif skipped == "already positive definite":
+                header = (f"submatrix already positive definite "
+                          f"(lambda_min={whitening_stats['lambda_min_raw']:.4g}), "
+                          "no regularization needed")
+            else:
+                header = (f"alpha={whitening_stats['alpha']:.4g} "
+                          f"({whitening_stats['method']}), lambda_min "
+                          f"{whitening_stats['lambda_min_raw']:.4g} -> "
+                          f"{whitening_stats['lambda_min_regularized']:.4g}")
+            print(f"  whitening: {header}, "
+                  f"{whitening_stats['n_features']} feature(s) whitened "
+                  f"({len(whitening_stats['dropped_features'])} not found in Sigma), "
+                  f"{whitening_stats['n_rows_dropped_incomplete']} row(s) dropped "
+                  "for missing values before whitening")
+
+        # ── Marginal correlation with the target ──────────────────────────────
+        # Applied to whatever matrix is about to be trained on, so it also
+        # covers sampling: false (sampled files on disk predate this filter).
+        # Runs after drop_missing and whitening now, so this is the correlation
+        # of the final, complete-case (and possibly whitened) training matrix —
+        # not a pairwise-complete estimate on the raw data. When sampling ran,
+        # this is a no-op re-check — the report then simply describes the
+        # final training matrix.
+        target_corr_stats = None
+        max_target_corr = data_cfg.get("max_target_corr", 0.8)
+        if max_target_corr is not None:
+            df_pandas, target_corr_stats = drop_target_correlated_features(
+                df_pandas, float(max_target_corr), target=data_cfg["target"],
+            )
+            print(f"  target correlation (max_target_corr={max_target_corr}): kept "
+                  f"{target_corr_stats['n_features_kept']}/{target_corr_stats['n_features_before']} "
+                  f"features ({target_corr_stats['n_features_dropped']} dropped"
+                  + (f": {', '.join(target_corr_stats['dropped_columns'])}"
+                     if target_corr_stats["dropped_columns"] else "") + ")")
 
         id_cols = [col for col in ["ID"] if col in df_pandas.columns]
         X = df_pandas.drop(columns=[data_cfg["target"]] + id_cols)
@@ -583,6 +671,7 @@ def main() -> None:
             "pca": pca_var,
             "target_correlation": target_corr_stats,
             "drop_missing": drop_missing_stats,
+            "whitening": whitening_stats,
             "selected_features": selected_features,
             "config": iter_cfg,
             "timestamp": timestamp,
