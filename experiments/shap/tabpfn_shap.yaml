@@ -68,7 +68,7 @@ model:
   name: tabpfn
   type: ["regression"]
   finetune: false
-  device: mps
+  device: cpu
 
 hpo:
   run: false
@@ -84,7 +84,7 @@ shap:
   # interactions: true  -> index "k-SII", max_order 2  (pairwise interactions)
   # index / max_order override those defaults (e.g. max_order: 3 for triples,
   # or index: FSII). Only the linear family and TabPFN are explained.
-  interactions: false
+  interactions: true
   # index: k-SII
   # max_order: 2
   # Coalitions sampled per explained row. "auto" asks for the exhaustive

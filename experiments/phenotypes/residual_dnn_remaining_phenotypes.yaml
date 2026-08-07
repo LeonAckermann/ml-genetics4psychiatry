@@ -1,7 +1,7 @@
 # Experiment: Residual DNN with HPO for the phenotypes not yet covered by
 # residual_dnn_all_phenotypes.yaml (determined by diffing residual_dnn results
-# in results_phenotype/ against the lasso_regression results, which cover the
-# full density-selected phenotype list).
+# in results/ against the other 5 models, all of which have full 192/192
+# coverage there).
 #
 # For each phenotype: predicts its own Z-score from every other phenotype
 # column, restricted to its own clumped SNPs (output/clumped_<phenotype>.clumps)
@@ -21,31 +21,14 @@ plink2:
 
 data:
   illness: [
-    "BCT_RDW",
-    "BCT_WBC",
-    "BRADFIELDJP_CHILDOBESITY",
-    "CARDIOGRAMPLUSC4D-META_CAD",
-    "CARDIOGRAM_CHD",
-    "COVID_HOSPITALCOVID",
-    "COVID_SEVERECOVID",
-    "DEMONTISD_ADHD",
-    "FOLKERSENL_BNGF",
-    "FOLKERSENL_CCL2",
-    "FOLKERSENL_CCL3",
-    "FOLKERSENL_CCL4",
-    "FOLKERSENL_CXCL1",
-    "FOLKERSENL_CXCL8",
-    "FOLKERSENL_ECP",
+    "GRAHAMSE_TC",
+    "GRAHAMSE_TG",
+    "GSCAN_AGE-SMOKE",
     "GSCAN_CIG-DAY",
     "GSCAN_DRINK-WEEK",
     "GSCAN_SMOKE-CES",
     "GSCAN_SMOKE-INIT",
     "GUINTIVANOJ_PPD",
-    "ICD_IPF",
-    "ICGCUKB_COPD",
-    "IMSGC-WTCC2_MULTSCLE",
-    "IPFALLEN_IPF",
-    "ISGEC_CHRONOTYPE",
   ]
   gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
   info_csv_path: "./data/pipeline/input/gwas_pheno/info.csv"

@@ -23,7 +23,7 @@ data:
   # illness blank -> auto-detected. With min_density set, the phenotype list is
   # taken from the density-frontier JSON (the same features used for clumping)
   # instead of info_csv_path; unset min_density to fall back to info.csv.
-  illness: []
+  illness: ["BCT_BASO"]
   min_density: 0.8
   density_json: "./data/pipeline/analysis/dense_density.json"
   gwas_pheno_path: "./data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
@@ -60,6 +60,12 @@ data:
   # reused as written. max_target_corr applies either way (see above).
   sampling: false
   invert: true
+  whitening:
+    enabled: true
+    sigma_path: data/pipeline/input/gwas_pheno/covariance_spd.csv # pre-regularized Sigma (SPD) for ZCA whitening
+    search_alpha: false # use the pre-regularized Sigma as-is, no per-target null search
+    transform_method: zca
+    
 
 experiment:
   run: true
@@ -79,7 +85,7 @@ evaluation:
 # result JSON under hpo.shap_mean_values. plots: false skips every figure —
 # only the numbers are produced.
 shap:
-  enabled: true
+  enabled: false
   # interactions: false -> index "SV",    max_order 1  (plain Shapley values)
   # interactions: true  -> index "k-SII", max_order 2  (pairwise interactions)
   # index / max_order override those defaults (e.g. max_order: 3 for triples,
