@@ -404,7 +404,11 @@ def main() -> None:
             _wcfg_for_name = _whitening_cfg_for_name if isinstance(_whitening_cfg_for_name, dict) else {}
             whitening_suffix = f"_whitening_{_wcfg_for_name.get('transform_method', 'zca')}"
 
-        experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}"
+        residual_suffix = "_residual" if data_cfg.get("residual", False) else ""
+        if residual_suffix == "_residual":
+            print("The residual flag is set — the target y will be replaced with the residual of an out-of-fold linear regression on the same features before training.")
+
+        experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}"
         results_dir = Path("./results") / experiment_name
         results_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

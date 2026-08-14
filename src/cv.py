@@ -95,6 +95,79 @@ def _needs_val_split(model_name: str, params: dict) -> bool:
     )
 
 
+def _residual_target(
+    X_arr: np.ndarray,
+    y_arr: np.ndarray,
+    fold_splits: list[tuple[np.ndarray, np.ndarray]],
+    cfg: dict,
+    experiment_name: str,
+) -> tuple[np.ndarray, dict]:
+    """Out-of-fold linear-regression residual of ``y_arr``, on the exact same
+    outer folds the real model (e.g. TabPFN) is evaluated on below.
+
+    For each fold, a plain (unregularised) LinearRegression is fit on that
+    fold's training split only and used to predict the held-out test split --
+    it never sees a sample's label before being scored against it, so the
+    residual for every sample comes from a model that never trained on that
+    sample. Stitching those held-out residuals back together in original row
+    order gives one out-of-fold residual per sample, which becomes the new
+    regression target for the real model configured via ``model_name``.
+
+    Preprocessing (optional PCA, StandardScaler, optional noise) mirrors
+    exactly what the main fold loop below does for ``linear_regression``, so
+    this auxiliary model sees the same feature representation the real model
+    will train on, not a differently-preprocessed proxy.
+
+    Returns ``(residual_y, baseline_metrics)`` -- ``baseline_metrics`` is
+    aggregated the same way as the real model's own results (mean/std per
+    fold), for direct comparison against an ordinary ``linear_regression``
+    run on this phenotype.
+    """
+    print(f"[{experiment_name}] data.residual=true -- building out-of-fold "
+          f"linear-regression residual target ({len(fold_splits)} folds)")
+    residual_y = np.full_like(y_arr, np.nan, dtype=np.float32)
+    fold_metrics: list[dict] = []
+
+    for fold, (train_idx, test_idx) in enumerate(fold_splits):
+        X_train, X_test = X_arr[train_idx], X_arr[test_idx]
+        y_train, y_test = y_arr[train_idx], y_arr[test_idx]
+
+        pca = _pca_setting(cfg)
+        if pca is not None:
+            # No real val split needed (linear_regression does not use one);
+            # X_train doubles as the unused "val" input, same convention the
+            # main loop uses below when _needs_val_split is False.
+            X_train, _, X_test = _apply_pca(X_train, X_train, X_test, pca)
+
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.transform(X_test)
+
+        sigma = _noise_sigma(cfg)
+        if sigma > 0:
+            rng = np.random.default_rng(42 + fold)
+            X_train = _add_noise(X_train, sigma, rng)
+            X_test = _add_noise(X_test, sigma, rng)
+
+        # Plain LinearRegression: build_model("linear_regression", ...) has no
+        # hyperparameters, so an empty params dict (rather than the outer
+        # model's, e.g. TabPFN's, pinned config values) is the correct and
+        # only sensible input here.
+        model = build_model("linear_regression", {}, cfg)
+        preds = train(model, X_train, y_train, X_train, y_train, X_test, y_test, cfg)
+
+        residual_y[test_idx] = y_test - preds
+        metrics = compute_metrics(y_test, preds, "regression")
+        fold_metrics.append(metrics)
+        print(f"  [{experiment_name}] residual baseline fold {fold + 1}/{len(fold_splits)}: "
+              f"pearson_r2={metrics.get('pearson_r2', float('nan')):.4f}")
+
+    baseline = aggregate_metrics(fold_metrics, "regression",
+                                 f"{experiment_name} residual baseline")
+    baseline["fold_metrics"] = fold_metrics
+    return residual_y, baseline
+
+
 def nested_cv(
     X,
     y,
@@ -133,6 +206,16 @@ def nested_cv(
     is_classification = task_type == "binary_classification"
     needs_scaling = model_name in NEEDS_SCALING
 
+    residual_enabled = bool(cfg.get("data", {}).get("residual", False))
+    if residual_enabled and is_classification:
+        raise ValueError(
+            "data.residual=true is only defined for regression targets: it "
+            "residualises a continuous y against an out-of-fold linear-"
+            "regression fit, which has no equivalent for a binary label "
+            "without a different (unimplemented) construction. Set "
+            "data.residual=false for binary_classification runs."
+        )
+
     shap_cfg = cfg.get("shap", {}) or {}
     shap_enabled = bool(shap_cfg.get("enabled", False))
 
@@ -146,6 +229,17 @@ def nested_cv(
     y_arr = np.asarray(y, dtype=np.float32).ravel()
 
     outer_kfold = KFold(n_splits=outer_cv, shuffle=True, random_state=42)
+    # Materialised once so the residual pass and the real model below are
+    # scored on identical fold assignments -- not just "the same by
+    # construction" via a second .split() call with a matching seed.
+    fold_splits = list(outer_kfold.split(X_arr))
+
+    residual_baseline: dict | None = None
+    if residual_enabled:
+        y_arr, residual_baseline = _residual_target(
+            X_arr, y_arr, fold_splits, cfg, experiment_name
+        )
+
     fold_metrics: list[dict] = []
     fold_best_params: list[dict] = []
     fold_label_distributions: list[dict] = []
@@ -162,7 +256,7 @@ def nested_cv(
             " — skipping HPO"
         )
 
-    for fold, (train_idx, test_idx) in enumerate(outer_kfold.split(X_arr)):
+    for fold, (train_idx, test_idx) in enumerate(fold_splits):
         print(f"\n[{experiment_name}] --- Outer Fold {fold + 1}/{outer_cv} ---")
         X_train_outer = X_arr[train_idx]
         X_test_outer = X_arr[test_idx]
@@ -336,6 +430,15 @@ def nested_cv(
         "fold_label_distributions": fold_label_distributions,
         **aggregated,
     }
+    if residual_baseline is not None:
+        # The out-of-fold linear-regression pass whose residual became this
+        # run's y -- saved so the residual construction can be sanity-checked
+        # against an ordinary linear_regression run on the same phenotype
+        # without needing to re-derive it.
+        result["residual_baseline"] = residual_baseline
+        print(f"[{experiment_name}] residual_baseline included in result "
+              f"(auxiliary linear-regression mean_pearson_r2="
+              f"{residual_baseline.get('mean_pearson_r2', float('nan')):.4f})")
     if fold_confidence_metrics:
         result["fold_confidence_metrics"] = fold_confidence_metrics
         result["confidence_threshold_evaluation"] = aggregate_confidence_metrics(fold_confidence_metrics)
