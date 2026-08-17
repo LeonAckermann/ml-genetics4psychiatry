@@ -196,7 +196,7 @@ def nearest_pd(S: np.ndarray, eps: float = 0.0, max_iter: int = 200, tol: float 
     """Higham's nearest PD matrix with the diagonal held fixed.
 
     Alternating projections between the PSD cone (eigenvalue floor at ``eps``)
-    and the set of matrices with ``S``'s diagonal.  With a unit diagonal this is
+    and the set of matrices with ``S``'s diagonal. With a unit diagonal this is
     the classic nearest-correlation-matrix algorithm.
     """
     d = np.diag(S).copy()
