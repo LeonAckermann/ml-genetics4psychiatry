@@ -32,9 +32,21 @@ data:
   p_clump: [0.001]
   distribution: ["low"]
   target: Z
+  # Feature-column pruning during sampling (drops sparse phenotype columns so the
+  # complete-case matrix keeps rows). Use ONE of the following:
+  #   min_complete_frac: auto-pick the densest features so that >= this fraction
+  #                      of rows stay complete (takes precedence if both set).
+  #   max_col_missing:   drop any feature column whose null-rate exceeds this.
   min_complete_frac: 0.95
+  # max_col_missing: 0.05
+  # Marginal |Pearson r| with the target. Applied twice, independently: inside
+  # sampling (before the densest-feature selection above, reported under
+  # sampling_metrics_*.target_correlation) and again on the loaded matrix before
+  # training, so it holds with sampling: false too — reported at the result JSON
+  # top level as target_correlation. Features above this floor are dropped;
+  # set to null to disable both.
   max_target_corr: 0.8
-  drop_missing: true   # drop rows with any null feature/target before training
+  drop_missing: true   # then drop the residual rows with any null before training
   test_size: 0.2
   n_splits: 5
   save_splits: true
@@ -44,8 +56,16 @@ data:
   col_ratio: [1.0]
   top_rows: true
   top_cols: true
+  # min_complete_frac / max_col_missing only run inside the sampling stage; with
+  # sampling: false the existing data/sampled/<dist>/sampled_<illness>_p<p>.txt is
+  # reused as written. max_target_corr applies either way (see above).
   sampling: false
   invert: true
+  whitening:
+    enabled: true
+    sigma_path: data/pipeline/input/gwas_pheno/covariance_spd.csv # pre-regularized Sigma (SPD) for ZCA whitening
+    search_alpha: false # use the pre-regularized Sigma as-is, no per-target null search
+    transform_method: zca
 
 experiment:
   run: true
@@ -74,7 +94,8 @@ shap:
   # index / max_order override those defaults (e.g. max_order: 3 for triples,
   # or index: FSII). Only the linear family and TabPFN are explained.
   interactions: true
-  index: FSII
+  index: k-SII
+  max_order: 3
   # max_order: 2
   # Coalitions sampled per explained row. "auto" asks for the exhaustive
   # 2**n_features and caps it at max_budget; above the cap shapiq samples and
@@ -84,7 +105,7 @@ shap:
   random_state: 0
   background_size: 100
   # Rows explained per fold (cost is per row). Drop the key to explain them all.
-  max_explain_rows: 
+  max_explain_rows: 200
   # Values are averaged over a fold's test rows, then over the outer folds. The
   # summary lands in the result JSON under hpo.shap_mean_values; the averaged
   # object itself in results/<experiment>/shap/interaction_values_mean.json
