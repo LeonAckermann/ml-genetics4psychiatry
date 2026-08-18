@@ -1,5 +1,6 @@
 """Data loading utilities."""
 
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -422,6 +423,66 @@ def drop_target_correlated_features(df, max_abs_corr, target="Z",
              "dropped": feat_cols[i] in dropped}
             for i in order
         ],
+    }
+    return df[keep_cols], stats
+
+
+# GWAS reference sheet (Consortium, Outcome, Category, ...) -- same file and
+# join key figures/trait_categories.py uses for post-hoc analysis
+# ("<Consortium>_<Outcome>", lowercased; results/ directory names and sampled
+# feature-column names already match this format exactly).
+_TRAIT_REFERENCE_CSV = (Path(__file__).resolve().parent.parent
+                        / "data" / "pipeline" / "input" / "gwas_pheno" / "reference.csv")
+
+
+def load_trait_categories(path=None) -> dict:
+    """``{lowercased "<consortium>_<outcome>": category}`` from the GWAS
+    reference sheet. Blank Category cells still get a bucket ("Unspecified")
+    rather than being dropped from the mapping."""
+    path = Path(path) if path is not None else _TRAIT_REFERENCE_CSV
+    mapping: dict[str, str] = {}
+    with open(path, newline="") as fh:
+        for row in csv.DictReader(fh):
+            consortium = (row.get("Consortium") or "").strip()
+            outcome = (row.get("Outcome") or "").strip()
+            if not consortium or not outcome:
+                continue
+            mapping[f"{consortium}_{outcome}".lower()] = (
+                (row.get("Category") or "").strip() or "Unspecified")
+    return mapping
+
+
+def drop_same_category_features(df, target, protect=_COL_FILTER_PROTECT, reference_path=None):
+    """Drop every feature column whose GWAS reference-sheet trait category
+    matches the TARGET's own category -- so the model never has same-
+    category predictors (e.g. other Lipids traits) available at all, rather
+    than only having their post-hoc attribution excluded from an analysis
+    after training. ``target`` is the phenotype/illness name (e.g.
+    "BCT_BASO"), matched against the reference sheet's "<Consortium>_
+    <Outcome>" join key case-insensitively -- the same key results/
+    directory names and sampled feature columns already use.
+
+    A target not found in the reference sheet has no known category to
+    exclude by, so every feature is kept (reported via ``stats["target_
+    category"] is None``) rather than silently dropping nothing without
+    saying why. Returns ``(filtered_df, stats)``, same convention as
+    ``drop_target_correlated_features``.
+    """
+    mapping = load_trait_categories(reference_path)
+    target_cat = mapping.get(str(target).lower())
+    feat_cols = [c for c in df.columns if c not in protect and c != target]
+
+    dropped = ([c for c in feat_cols if mapping.get(c.lower()) == target_cat]
+              if target_cat is not None else [])
+    keep_cols = [c for c in df.columns if c not in dropped]
+    stats = {
+        "strategy": "exclude_same_category",
+        "target": target,
+        "target_category": target_cat,
+        "n_features_before": len(feat_cols),
+        "n_features_kept": len(feat_cols) - len(dropped),
+        "n_features_dropped": len(dropped),
+        "dropped_columns": dropped,
     }
     return df[keep_cols], stats
 

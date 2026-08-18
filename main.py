@@ -28,7 +28,7 @@ from dataloader.pipeline import (
     prepare_phenotype_clump_input,
     select_dense_features,
 )
-from dataloader.preprocess import drop_target_correlated_features, sample
+from dataloader.preprocess import drop_same_category_features, drop_target_correlated_features, sample
 from src import get_default_search_space, nested_cv
 
 
@@ -463,10 +463,12 @@ def main() -> None:
         if residual_suffix == "_residual":
             print("The residual flag is set — the target y will be replaced with the residual of an out-of-fold linear regression on the same features before training.")
 
+        same_category_suffix = "_samecatexcl" if data_cfg.get("exclude_same_category", False) else ""
+
         if using_custom_data:
-            experiment_name = f"{model_name}_{illness}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}"
+            experiment_name = f"{model_name}_{illness}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}{same_category_suffix}"
         else:
-            experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}"
+            experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}{same_category_suffix}"
         results_dir = Path("./results") / experiment_name
         results_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -539,6 +541,28 @@ def main() -> None:
             print(f"Original shape {int(df.shape[0] / row_ratio)} samples, {int(df.shape[1] / col_ratio)} features")
 
         df_pandas = df.to_pandas() if hasattr(df, "to_pandas") else df
+
+        # ── Optional: drop predictors sharing the target's own trait category ──
+        # Runs first — before drop_missing (row-level) and before the target-
+        # correlation / whitening feature-pruning steps below — so a same-
+        # category predictor is never a candidate feature at all, rather than
+        # being trained on and only excluded post-hoc from an analysis. This
+        # is the causal counterpart to figures/'s post-hoc same-category-cell
+        # exclusion: with the predictor never offered to the model, any
+        # power-adjusted gain that survives can't be routed through it.
+        same_category_stats = None
+        if data_cfg.get("exclude_same_category", False):
+            df_pandas, same_category_stats = drop_same_category_features(df_pandas, illness)
+            if same_category_stats["target_category"] is None:
+                print(f"  exclude_same_category: {illness!r} not found in the GWAS reference "
+                      "sheet — no category to exclude by, all features kept")
+            else:
+                print(f"  exclude_same_category: target category="
+                      f"{same_category_stats['target_category']!r}, dropped "
+                      f"{same_category_stats['n_features_dropped']} same-category feature(s) "
+                      f"({same_category_stats['n_features_kept']}/"
+                      f"{same_category_stats['n_features_before']} kept)")
+            output[f"same_category_exclusion_{illness}"] = same_category_stats
 
         # Resolve the target column: an explicit data.target name takes
         # priority; otherwise data.target_regex is matched against the
