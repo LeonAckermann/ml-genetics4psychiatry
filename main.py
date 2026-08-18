@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime
 from itertools import product
 from pathlib import Path
@@ -15,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from dataloader import load_illness_data
+from dataloader import load_illness_data, load_txt, load_txt_polars
 from dataloader.pipeline import (
     aligne_clumped_illness_mri,
     aligne_clumped_phenotype,
@@ -27,7 +28,7 @@ from dataloader.pipeline import (
     prepare_phenotype_clump_input,
     select_dense_features,
 )
-from dataloader.preprocess import drop_target_correlated_features, sample
+from dataloader.preprocess import drop_same_category_features, drop_target_correlated_features, sample
 from src import get_default_search_space, nested_cv
 
 
@@ -331,33 +332,78 @@ def main() -> None:
         return float(v)
     pca_values: list[float | str | None] = [_parse_pca(v) for v in _raw_pca]
 
-    # data.illness left blank/empty → auto-detect the phenotype list. Prefer the
-    # density-frontier selection (same features used for clumping) when
-    # data.min_density is set; otherwise fall back to every include=1 phenotype
-    # from info.csv that's present as a column in the gwas_pheno matrix.
-    illness_list = data_cfg.get("illness") or []
-    if not illness_list:
-        min_density = data_cfg.get("min_density")
-        if min_density is not None:
-            density_json = data_cfg.get(
-                "density_json", "./data/pipeline/analysis/dense_density.json")
-            illness_list = select_dense_features(density_json, float(min_density))
-            print(f"data.illness is empty — selected {len(illness_list)} phenotypes "
-                  f"at density >= {min_density} from {density_json}: "
-                  f"{', '.join(illness_list)}")
-        else:
-            illness_list = included_phenotype_columns(
-                data_cfg["gwas_pheno_path"], data_cfg["info_csv_path"],
-            )
-            print(f"data.illness is empty — auto-detected {len(illness_list)} phenotypes "
-                  f"from info.csv: {', '.join(illness_list)}")
+    # data.path lets you point straight at a prepared tabular file (CSV/TSV/TXT),
+    # bypassing the illness/p_clump/distribution GWAS pipeline entirely. Every
+    # other data.* setting keeps its default; the target column is resolved via
+    # data.target or data.target_regex. data.dir does the same but for every
+    # matching file in a folder, running one separate experiment per file.
+    custom_data_path = data_cfg.get("path")
+    custom_data_dir = data_cfg.get("dir")
+    using_custom_data = bool(custom_data_path or custom_data_dir)
+    data_path_by_stem: dict[str, Path] = {}
+
+    if custom_data_dir:
+        dir_path = Path(custom_data_dir).expanduser().resolve()
+        if not dir_path.is_dir():
+            raise FileNotFoundError(f"data.dir not found or not a directory: {dir_path}")
+        extensions = tuple(e.lower() for e in data_cfg.get("extensions", [".csv", ".tsv", ".txt"]))
+        data_files = sorted(
+            f for f in dir_path.iterdir() if f.is_file() and f.suffix.lower() in extensions
+        )
+        if not data_files:
+            raise FileNotFoundError(f"No files with extensions {extensions} found in {dir_path}")
+        for f in data_files:
+            if f.stem in data_path_by_stem:
+                raise ValueError(
+                    f"Multiple files in {dir_path} share the name {f.stem!r} "
+                    f"({data_path_by_stem[f.stem].name} vs {f.name}) — rename one to disambiguate."
+                )
+            data_path_by_stem[f.stem] = f
+        print(f"data.dir={dir_path} — found {len(data_files)} files: {', '.join(f.name for f in data_files)}")
+        illness_list = list(data_path_by_stem)
+        distribution_list = ["custom"]
+        p_clump_list = [None]
+        row_ratio_list = [1.0]
+        col_ratio_list = [1.0]
+    elif custom_data_path:
+        data_path_by_stem[Path(custom_data_path).stem] = Path(custom_data_path)
+        illness_list = list(data_path_by_stem)
+        distribution_list = ["custom"]
+        p_clump_list = [None]
+        row_ratio_list = [1.0]
+        col_ratio_list = [1.0]
+    else:
+        # data.illness left blank/empty → auto-detect the phenotype list. Prefer the
+        # density-frontier selection (same features used for clumping) when
+        # data.min_density is set; otherwise fall back to every include=1 phenotype
+        # from info.csv that's present as a column in the gwas_pheno matrix.
+        illness_list = data_cfg.get("illness") or []
+        if not illness_list:
+            min_density = data_cfg.get("min_density")
+            if min_density is not None:
+                density_json = data_cfg.get(
+                    "density_json", "./data/pipeline/analysis/dense_density.json")
+                illness_list = select_dense_features(density_json, float(min_density))
+                print(f"data.illness is empty — selected {len(illness_list)} phenotypes "
+                      f"at density >= {min_density} from {density_json}: "
+                      f"{', '.join(illness_list)}")
+            else:
+                illness_list = included_phenotype_columns(
+                    data_cfg["gwas_pheno_path"], data_cfg["info_csv_path"],
+                )
+                print(f"data.illness is empty — auto-detected {len(illness_list)} phenotypes "
+                      f"from info.csv: {', '.join(illness_list)}")
+        distribution_list = data_cfg.get("distribution", [])
+        p_clump_list = data_cfg.get("p_clump", [])
+        row_ratio_list = data_cfg.get("row_ratio", [1.0])
+        col_ratio_list = data_cfg.get("col_ratio", [1.0])
 
     for dist, p, illness, row_ratio, col_ratio, task_type, noise_sigma, rand_frac, pca_var in product(
-        data_cfg.get("distribution", []),
-        data_cfg.get("p_clump", []),
+        distribution_list,
+        p_clump_list,
         illness_list,
-        data_cfg.get("row_ratio", [1.0]),
-        data_cfg.get("col_ratio", [1.0]),
+        row_ratio_list,
+        col_ratio_list,
         cfg["model"].get("type", ["regression"]),
         noise_levels,
         rand_fracs,
@@ -383,13 +429,22 @@ def main() -> None:
             pca_suffix = "_pcaeff"
         else:
             pca_suffix = f"_pca{int(float(pca_var) * 100)}"
-        print(
-            f"\nStarting experiment: illness={illness}, p_clump={p},"
-            f" distribution={dist}, task_type={task_type}, model={model_name}"
-            + (f", noise_sigma={noise_sigma:g}"          if noise_sigma > 0    else "")
-            + (f", rand={rand_frac:g}"                   if rand_frac  < 1.0   else "")
-            + (f", pca={pca_var}"                        if pca_var is not None else "")
-        )
+        if using_custom_data:
+            print(
+                f"\nStarting experiment: data_path={data_path_by_stem[illness]}, "
+                f"task_type={task_type}, model={model_name}"
+                + (f", noise_sigma={noise_sigma:g}"          if noise_sigma > 0    else "")
+                + (f", rand={rand_frac:g}"                   if rand_frac  < 1.0   else "")
+                + (f", pca={pca_var}"                        if pca_var is not None else "")
+            )
+        else:
+            print(
+                f"\nStarting experiment: illness={illness}, p_clump={p},"
+                f" distribution={dist}, task_type={task_type}, model={model_name}"
+                + (f", noise_sigma={noise_sigma:g}"          if noise_sigma > 0    else "")
+                + (f", rand={rand_frac:g}"                   if rand_frac  < 1.0   else "")
+                + (f", pca={pca_var}"                        if pca_var is not None else "")
+            )
         # Reflects data.whitening from the config, not the runtime fit result --
         # transform_method is a config value known up front, so the filename
         # can be built before results_dir is created below (whitening itself
@@ -408,69 +463,124 @@ def main() -> None:
         if residual_suffix == "_residual":
             print("The residual flag is set — the target y will be replaced with the residual of an out-of-fold linear regression on the same features before training.")
 
-        experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}"
+        same_category_suffix = "_samecatexcl" if data_cfg.get("exclude_same_category", False) else ""
+
+        if using_custom_data:
+            experiment_name = f"{model_name}_{illness}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}{same_category_suffix}"
+        else:
+            experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}{same_category_suffix}"
         results_dir = Path("./results") / experiment_name
         results_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_file = results_dir / f"{experiment_name}_{timestamp}.json"
         output = {}
 
-        # ── Optional sampling ─────────────────────────────────────────────────
-        if data_cfg.get("sampling", False):
-            print(f"Sampling data for illness={illness}, p_clump={p}, distribution={dist}...")
-            sampling_metrics = sample(
-                p_value=p, distribution=dist, illness=illness,
-                polars=data_cfg.get("polars", False),
-                chunk_size=data_cfg.get("chunk_size", 100000),
-                total_chunks=data_cfg.get("total_chunks", None),
-                sample_p=data_cfg.get("sample_p", False),
-                gwas_pheno_path=data_cfg.get("gwas_pheno_path"),
-                clumps_path=data_cfg.get("clumps_path"),
-                max_col_missing=data_cfg.get("max_col_missing"),
-                min_complete_frac=data_cfg.get("min_complete_frac"),
-                max_target_corr=data_cfg.get("max_target_corr", 0.8),
-                use_parquet=data_cfg.get("use_parquet", True),
-            )
-            output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
-        else:
-            data_path = Path(f"./data/sampled/{dist}/sampled_{illness}_p{p}.txt")
-            if not data_path.exists():
-                raise FileNotFoundError(
-                    f"Sampled data not found at {data_path}. "
-                    "Run with sampling: true first."
-                )
-            # The feature-pruning knobs all live inside sample(); with sampling
-            # off they are silently inert and the pre-existing sampled file is
-            # used as-is (whatever pruning it was written with). Say so, rather
-            # than letting the config look like it applied. (whitening is NOT
-            # in this list — it runs independently of sampling, below.)
-            inert = [k for k in ("max_target_corr", "min_complete_frac", "max_col_missing")
-                     if data_cfg.get(k) is not None]
-            if inert:
-                print(f"  NOTE: sampling is off — {', '.join(inert)} not applied; "
-                      f"reusing {data_path} as written. Set data.sampling: true "
-                      f"to recompute (and to report target correlations).")
-
         # ── Load data ─────────────────────────────────────────────────────────
-        df = load_illness_data(
-            illness,
-            in_notebook=False,
-            polars=data_cfg.get("polars", True),
-            distribution=dist,
-            chunk_size=chunk_size,
-            total_chunks=total_chunks,
-            p_value=p,
-            row_ratio=row_ratio,
-            col_ratio=col_ratio,
-            top_rows=data_cfg.get("top_rows", True),
-            top_cols=data_cfg.get("top_cols", True),
-            mri_p_value=data_cfg.get("mri_p_value", 0.05),
-        )
+        if using_custom_data:
+            resolved_data_path = data_path_by_stem[illness]
+            sep = "," if resolved_data_path.suffix.lower() == ".csv" else "\t"
+            if data_cfg.get("polars", True):
+                df = load_txt_polars(resolved_data_path, sep=sep, chunk_size=chunk_size, total_chunks=total_chunks)
+            else:
+                df = load_txt(resolved_data_path, sep=sep, chunk_size=chunk_size, total_chunks=total_chunks)
+        else:
+            # ── Optional sampling ─────────────────────────────────────────────
+            if data_cfg.get("sampling", False):
+                print(f"Sampling data for illness={illness}, p_clump={p}, distribution={dist}...")
+                sampling_metrics = sample(
+                    p_value=p, distribution=dist, illness=illness,
+                    polars=data_cfg.get("polars", False),
+                    chunk_size=data_cfg.get("chunk_size", 100000),
+                    total_chunks=data_cfg.get("total_chunks", None),
+                    sample_p=data_cfg.get("sample_p", False),
+                    gwas_pheno_path=data_cfg.get("gwas_pheno_path"),
+                    clumps_path=data_cfg.get("clumps_path"),
+                    max_col_missing=data_cfg.get("max_col_missing"),
+                    min_complete_frac=data_cfg.get("min_complete_frac"),
+                    max_target_corr=data_cfg.get("max_target_corr", 0.8),
+                    use_parquet=data_cfg.get("use_parquet", True),
+                )
+                output[f"sampling_metrics_{illness}_{dist}_p{p}"] = sampling_metrics
+            else:
+                data_path = Path(f"./data/sampled/{dist}/sampled_{illness}_p{p}.txt")
+                if not data_path.exists():
+                    raise FileNotFoundError(
+                        f"Sampled data not found at {data_path}. "
+                        "Run with sampling: true first."
+                    )
+                # The feature-pruning knobs all live inside sample(); with sampling
+                # off they are silently inert and the pre-existing sampled file is
+                # used as-is (whatever pruning it was written with). Say so, rather
+                # than letting the config look like it applied. (whitening is NOT
+                # in this list — it runs independently of sampling, below.)
+                inert = [k for k in ("max_target_corr", "min_complete_frac", "max_col_missing")
+                         if data_cfg.get(k) is not None]
+                if inert:
+                    print(f"  NOTE: sampling is off — {', '.join(inert)} not applied; "
+                          f"reusing {data_path} as written. Set data.sampling: true "
+                          f"to recompute (and to report target correlations).")
+
+            df = load_illness_data(
+                illness,
+                in_notebook=False,
+                polars=data_cfg.get("polars", True),
+                distribution=dist,
+                chunk_size=chunk_size,
+                total_chunks=total_chunks,
+                p_value=p,
+                row_ratio=row_ratio,
+                col_ratio=col_ratio,
+                top_rows=data_cfg.get("top_rows", True),
+                top_cols=data_cfg.get("top_cols", True),
+                mri_p_value=data_cfg.get("mri_p_value", 0.05),
+            )
+
         print(f"Loaded data: {df.shape[0]} samples, {df.shape[1]} features")
-        print(f"{row_ratio*100}% of rows, {col_ratio*100}% of columns retained after sampling")
-        print(f"Original shape {int(df.shape[0] / row_ratio)} samples, {int(df.shape[1] / col_ratio)} features")
+        if not using_custom_data:
+            print(f"{row_ratio*100}% of rows, {col_ratio*100}% of columns retained after sampling")
+            print(f"Original shape {int(df.shape[0] / row_ratio)} samples, {int(df.shape[1] / col_ratio)} features")
 
         df_pandas = df.to_pandas() if hasattr(df, "to_pandas") else df
+
+        # ── Optional: drop predictors sharing the target's own trait category ──
+        # Runs first — before drop_missing (row-level) and before the target-
+        # correlation / whitening feature-pruning steps below — so a same-
+        # category predictor is never a candidate feature at all, rather than
+        # being trained on and only excluded post-hoc from an analysis. This
+        # is the causal counterpart to figures/'s post-hoc same-category-cell
+        # exclusion: with the predictor never offered to the model, any
+        # power-adjusted gain that survives can't be routed through it.
+        same_category_stats = None
+        if data_cfg.get("exclude_same_category", False):
+            df_pandas, same_category_stats = drop_same_category_features(df_pandas, illness)
+            if same_category_stats["target_category"] is None:
+                print(f"  exclude_same_category: {illness!r} not found in the GWAS reference "
+                      "sheet — no category to exclude by, all features kept")
+            else:
+                print(f"  exclude_same_category: target category="
+                      f"{same_category_stats['target_category']!r}, dropped "
+                      f"{same_category_stats['n_features_dropped']} same-category feature(s) "
+                      f"({same_category_stats['n_features_kept']}/"
+                      f"{same_category_stats['n_features_before']} kept)")
+            output[f"same_category_exclusion_{illness}"] = same_category_stats
+
+        # Resolve the target column: an explicit data.target name takes
+        # priority; otherwise data.target_regex is matched against the
+        # dataframe's columns (must match exactly one).
+        target_col = data_cfg.get("target")
+        target_regex = data_cfg.get("target_regex")
+        if not target_col:
+            if not target_regex:
+                raise ValueError("Config must set data.target or data.target_regex")
+            matches = [c for c in df_pandas.columns if re.search(target_regex, c)]
+            if len(matches) != 1:
+                raise ValueError(
+                    f"data.target_regex={target_regex!r} matched {len(matches)} columns "
+                    f"(expected exactly 1): {matches}"
+                )
+            target_col = matches[0]
+            print(f"Resolved target column via regex: {target_col}")
+        iter_cfg["data"]["target"] = target_col
 
         # ── Optional: drop rows with any missing value (complete-case matrix) ──
         # Feature columns (other phenotypes) can be null at a phenotype's selec
@@ -523,7 +633,7 @@ def main() -> None:
             wcfg = whitening_cfg if isinstance(whitening_cfg, dict) else {}
             id_cols_pre = [c for c in ["ID"] if c in df_pandas.columns]
             feature_cols = [c for c in df_pandas.columns
-                             if c not in id_cols_pre + [data_cfg["target"]]]
+                             if c not in id_cols_pre + [target_col]]
             fit = fit_whitener(
                 sigma_path=wcfg.get(
                     "sigma_path", "data/pipeline/input/gwas_pheno/official_intercept_matrix.csv"),
@@ -541,7 +651,7 @@ def main() -> None:
                 transform_method=wcfg.get("transform_method", "zca")
             )
             df_pandas, whitening_stats = apply_whitening(
-                df_pandas, fit, target_col=data_cfg["target"])
+                df_pandas, fit, target_col=target_col)
             skipped = whitening_stats["sweep"].get("skipped")
             if skipped == "search_alpha=False -- Sigma assumed already PD":
                 header = (f"loaded SPD matrix, Ridge regularization skipped "
@@ -570,10 +680,10 @@ def main() -> None:
         # this is a no-op re-check — the report then simply describes the
         # final training matrix.
         target_corr_stats = None
-        max_target_corr = data_cfg.get("max_target_corr", 0.8)
+        max_target_corr = data_cfg.get("max_target_corr", None if using_custom_data else 0.8)
         if max_target_corr is not None:
             df_pandas, target_corr_stats = drop_target_correlated_features(
-                df_pandas, float(max_target_corr), target=data_cfg["target"],
+                df_pandas, float(max_target_corr), target=target_col,
             )
             print(f"  target correlation (max_target_corr={max_target_corr}): kept "
                   f"{target_corr_stats['n_features_kept']}/{target_corr_stats['n_features_before']} "
@@ -581,9 +691,13 @@ def main() -> None:
                   + (f": {', '.join(target_corr_stats['dropped_columns'])}"
                      if target_corr_stats["dropped_columns"] else "") + ")")
 
+        # data.ignore_columns lists columns (e.g. ID/metadata columns) to drop
+        # from the feature matrix in addition to the target column.
+        ignore_cols = [c for c in data_cfg.get("ignore_columns", []) if c in df_pandas.columns]
         id_cols = [col for col in ["ID"] if col in df_pandas.columns]
-        X = df_pandas.drop(columns=[data_cfg["target"]] + id_cols)
-        y = df_pandas[data_cfg["target"]]
+        drop_cols = list(dict.fromkeys([target_col] + id_cols + ignore_cols))
+        X = df_pandas.drop(columns=drop_cols)
+        y = df_pandas[target_col]
 
         # Predictor features actually used from the sampled file (i.e. the
         # phenotype columns that survived the sampling-time column pruning).
