@@ -39,6 +39,15 @@ average, so the sign and spread that both means give up stay visible -- one dot
 per sample, coloured by that sample's feature value. Per fold it covers that
 fold's test rows; across folds the rows are pooled, and because the outer folds
 are disjoint that is exactly one explanation per sample in the dataset.
+
+When ``cfg["shap"]["store"]`` is also true, the un-averaged per-row values
+feeding the beeswarm are additionally written to
+``<results_dir>/shap/fold_<k>/row_interactions.npz`` -- ``order1`` (n_rows, F),
+``order2`` (n_rows, F, F) when interactions were computed, ``test_idx``
+mapping each row back to its position in the outer fold's test split, and
+``row_ids`` mapping it to the dataset's own row identifier when the caller has
+one. Independent of ``cfg["predictions"]["enabled"]``, which only controls
+whether predictions themselves are saved. See ``save_row_interactions``.
 """
 from __future__ import annotations
 
@@ -272,6 +281,73 @@ def _mean_abs_by_interaction(ivs: list) -> dict[tuple[int, ...], float]:
     return {key: total / n for key, total in totals.items()}
 
 
+def _row_interaction_arrays(
+    ivs: list, n_features: int, max_order: int
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Dense per-row arrays built from each row's ``InteractionValues``.
+
+    ``order1`` is (n_rows, F) -- the same order-1 values ``_order_1_arrays``
+    averages, kept per row instead of collapsed. ``order2`` is a symmetric
+    (n_rows, F, F) matrix of pairwise interactions, built from ``dict_values``
+    (the same tuple-keyed mapping ``_mean_abs_by_interaction`` reads) rather
+    than a shapiq accessor, since only order-1 has one here. ``None`` when
+    ``max_order < 2`` (no pairwise interactions were computed).
+    """
+    order1 = np.zeros((len(ivs), n_features), dtype=np.float64)
+    for i, iv in enumerate(ivs):
+        order1[i] = np.asarray(iv.get_n_order_values(1), dtype=np.float64)
+
+    if max_order < 2:
+        return order1, None
+
+    order2 = np.zeros((len(ivs), n_features, n_features), dtype=np.float64)
+    for i, iv in enumerate(ivs):
+        for key, value in iv.dict_values.items():
+            if len(key) == 2:
+                a, b = key
+                order2[i, a, b] = float(value)
+                order2[i, b, a] = float(value)
+    return order1, order2
+
+
+def save_row_interactions(
+    ivs: list,
+    test_idx: np.ndarray,
+    row_ids: np.ndarray | None,
+    feature_names: list[str],
+    out_dir: Path,
+    max_order: int,
+    tag: str,
+) -> Path:
+    """Persist one fold's per-row Shapley/interaction values as a dense ``.npz``.
+
+    ``test_idx`` are the *positional* sample indices (pre-fold-split row
+    numbers) these rows came from, so the array can be matched back to a
+    sample after folds are stitched together -- the same role
+    ``fold_assignment`` plays for predictions. ``row_ids`` are the dataset's
+    own row identifiers (e.g. subject IDs) at those same positions, when the
+    caller has them -- omitted from the file when not given. ``order2`` is
+    only written when interactions were computed (``max_order >= 2``).
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    order1, order2 = _row_interaction_arrays(ivs, len(feature_names), max_order)
+    baseline_values = np.array([float(iv.baseline_value) for iv in ivs], dtype=np.float64)
+    path = out_dir / "row_interactions.npz"
+    save_kwargs = dict(
+        order1=order1,
+        test_idx=np.asarray(test_idx),
+        baseline_values=baseline_values,
+        feature_names=np.asarray([str(f) for f in feature_names], dtype=object),
+    )
+    if order2 is not None:
+        save_kwargs["order2"] = order2
+    if row_ids is not None:
+        save_kwargs["row_ids"] = np.asarray(row_ids)
+    np.savez(path, **save_kwargs)
+    print(f"  {tag}: per-row interaction values saved to {path}")
+    return path
+
+
 def explain_fold(
     fitted_model,
     model_name: str,
@@ -284,6 +360,8 @@ def explain_fold(
     shap_cfg: dict,
     results_dir: Path,
     y_background: np.ndarray | None = None,
+    test_idx: np.ndarray | None = None,
+    row_ids: np.ndarray | None = None,
 ) -> dict:
     """Explain one outer fold's test rows and return the fold's mean attribution.
 
@@ -294,6 +372,14 @@ def explain_fold(
     The returned dict carries the fold's mean InteractionValues (mean over test
     rows) plus the order-1 summary, for ``aggregate_fold_shap`` to average across
     folds. Returns ``{}`` for a model family shapiq is not being used on here.
+
+    When ``shap_cfg["store"]`` is true, the per-row values computed here (which
+    already exist in memory to feed the beeswarm plot) are additionally
+    persisted to ``<results_dir>/shap/fold_<k>/row_interactions.npz`` via
+    ``save_row_interactions`` -- independent of anything outside ``shap_cfg``.
+    ``test_idx``/``row_ids`` are only used for that file (positional index and
+    dataset row identifier, respectively); omit them to skip the save even
+    when ``store`` is true.
     """
     tag = f"[{experiment_name}] fold {fold + 1}"
     if model_name not in SUPPORTED_MODELS:
@@ -307,7 +393,13 @@ def explain_fold(
     max_rows = shap_cfg.get("max_explain_rows")
     if max_rows and len(X_test) > int(max_rows):
         n_full = len(X_test)
-        X_test = _subsample(X_test, int(max_rows))
+        rng = np.random.default_rng(42)
+        subsample_idx = rng.choice(n_full, size=int(max_rows), replace=False)
+        X_test = X_test[subsample_idx]
+        if test_idx is not None:
+            test_idx = np.asarray(test_idx)[subsample_idx]
+        if row_ids is not None:
+            row_ids = np.asarray(row_ids)[subsample_idx]
         print(f"  {tag}: explaining a random {len(X_test)}/{n_full} test rows "
               f"(shap.max_explain_rows)")
 
@@ -335,6 +427,10 @@ def explain_fold(
     fold_iv = _mean_interaction_values(ivs, [float(iv.baseline_value) for iv in ivs])
     mean_signed, mean_abs = _order_1_arrays(ivs, len(feature_names))
     abs_by_key = _mean_abs_by_interaction(ivs)
+
+    if bool(shap_cfg.get("store", False)) and test_idx is not None:
+        row_dir = Path(results_dir) / "shap" / f"fold_{fold + 1}"
+        save_row_interactions(ivs, test_idx, row_ids, feature_names, row_dir, max_order, tag)
 
     summary = {
         "fold": fold + 1,

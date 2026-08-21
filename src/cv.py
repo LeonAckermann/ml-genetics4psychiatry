@@ -101,7 +101,13 @@ def _residual_target(
     fold_splits: list[tuple[np.ndarray, np.ndarray]],
     cfg: dict,
     experiment_name: str,
-) -> tuple[np.ndarray, dict]:
+    feature_names: list | None = None,
+    results_dir: Path | None = None,
+    shap_cfg: dict | None = None,
+    shap_enabled: bool = False,
+    save_predictions: bool = False,
+    row_ids: np.ndarray | None = None,
+) -> tuple[np.ndarray, dict, np.ndarray, list[dict]]:
     """Out-of-fold linear-regression residual of ``y_arr``, on the exact same
     outer folds the real model (e.g. TabPFN) is evaluated on below.
 
@@ -118,15 +124,31 @@ def _residual_target(
     this auxiliary model sees the same feature representation the real model
     will train on, not a differently-preprocessed proxy.
 
-    Returns ``(residual_y, baseline_metrics)`` -- ``baseline_metrics`` is
-    aggregated the same way as the real model's own results (mean/std per
-    fold), for direct comparison against an ordinary ``linear_regression``
-    run on this phenotype.
+    When ``save_predictions`` is set, this model's own out-of-fold predictions
+    (the linear fit, not the residual) are stitched into ``linear_preds`` for
+    the caller to persist alongside the real model's predictions -- independent
+    of SHAP. Separately, when ``shap_enabled`` and ``shap_cfg["store"]`` are
+    both set, each fold's fitted LinearRegression is explained via
+    ``explain_fold`` (writing under ``<results_dir>/residual_baseline/shap/``
+    so it never collides with the real model's own SHAP output) and the
+    per-fold summaries are returned for the caller to aggregate the same way
+    as the real model's. ``row_ids`` (aligned to ``y_arr``, the dataset's own
+    row identifiers rather than positional indices) is threaded through to
+    ``explain_fold`` so its saved per-row values can be traced back to a
+    sample.
+
+    Returns ``(residual_y, baseline_metrics, linear_preds, baseline_shap_folds)``
+    -- ``baseline_metrics`` is aggregated the same way as the real model's own
+    results (mean/std per fold), for direct comparison against an ordinary
+    ``linear_regression`` run on this phenotype. ``linear_preds`` is all-NaN
+    and ``baseline_shap_folds`` is empty when their respective flags are off.
     """
     print(f"[{experiment_name}] data.residual=true -- building out-of-fold "
           f"linear-regression residual target ({len(fold_splits)} folds)")
     residual_y = np.full_like(y_arr, np.nan, dtype=np.float32)
+    linear_preds = np.full_like(y_arr, np.nan, dtype=np.float32)
     fold_metrics: list[dict] = []
+    baseline_shap_folds: list[dict] = []
 
     for fold, (train_idx, test_idx) in enumerate(fold_splits):
         X_train, X_test = X_arr[train_idx], X_arr[test_idx]
@@ -154,18 +176,51 @@ def _residual_target(
         # model's, e.g. TabPFN's, pinned config values) is the correct and
         # only sensible input here.
         model = build_model("linear_regression", {}, cfg)
-        preds = train(model, X_train, y_train, X_train, y_train, X_test, y_test, cfg)
+        explain_baseline = shap_enabled and bool((shap_cfg or {}).get("store", False))
+        if explain_baseline:
+            preds, fitted_model = train(
+                model, X_train, y_train, X_train, y_train, X_test, y_test, cfg,
+                return_model=True,
+            )
+        else:
+            preds = train(model, X_train, y_train, X_train, y_train, X_test, y_test, cfg)
 
         residual_y[test_idx] = y_test - preds
+        if save_predictions:
+            linear_preds[test_idx] = preds
         metrics = compute_metrics(y_test, preds, "regression")
         fold_metrics.append(metrics)
         print(f"  [{experiment_name}] residual baseline fold {fold + 1}/{len(fold_splits)}: "
               f"pearson_r2={metrics.get('pearson_r2', float('nan')):.4f}")
 
+        if explain_baseline:
+            try:
+                effective_names = (
+                    [f"PC{i + 1}" for i in range(X_train.shape[1])]
+                    if pca is not None else feature_names
+                )
+                base_dir = Path(results_dir) if results_dir else Path("./results") / experiment_name
+                fold_summary = explain_fold(
+                    fitted_model, "linear_regression", "regression",
+                    X_background=X_train, X_test=X_test,
+                    feature_names=effective_names, fold=fold,
+                    experiment_name=f"{experiment_name} (residual baseline)",
+                    shap_cfg=shap_cfg or {},
+                    results_dir=base_dir / "residual_baseline",
+                    y_background=y_train,
+                    test_idx=test_idx,
+                    row_ids=row_ids[test_idx] if row_ids is not None else None,
+                )
+                if fold_summary:
+                    baseline_shap_folds.append(fold_summary)
+            except Exception as e:
+                print(f"  [{experiment_name}] residual baseline SHAP explanation "
+                      f"failed for fold {fold + 1}: {e}")
+
     baseline = aggregate_metrics(fold_metrics, "regression",
                                  f"{experiment_name} residual baseline")
     baseline["fold_metrics"] = fold_metrics
-    return residual_y, baseline
+    return residual_y, baseline, linear_preds, baseline_shap_folds
 
 
 def nested_cv(
@@ -182,6 +237,7 @@ def nested_cv(
     experiment_name: str = "",
     feature_names: list | None = None,
     results_dir: str | None = None,
+    row_ids: np.ndarray | None = None,
 ) -> dict:
     """Generic nested cross-validation with optional Optuna HPO.
 
@@ -201,6 +257,26 @@ def nested_cv(
     fold's metrics are reported (never during inner-fold HPO). ``feature_names``
     and ``results_dir`` control where plots are written and how features are
     labeled; see ``src/shap_explain.py`` for the full config schema.
+
+    When ``cfg["predictions"]["enabled"]`` is true, out-of-fold predictions
+    (stitched across the outer folds into original row order) are saved to
+    ``<results_dir>/predictions/predictions.npz``, including ``row_ids``.
+    Under ``data.residual=true`` this also includes the auxiliary linear-
+    regression baseline's own predictions (of the original target).
+
+    Independently, when ``cfg["shap"]["enabled"]`` and ``cfg["shap"]["store"]``
+    are both true, each outer fold's per-row SHAP/interaction values (already
+    computed for the beeswarm plot) are additionally written to
+    ``<results_dir>/shap/fold_<k>/row_interactions.npz`` -- and, under
+    ``data.residual=true``, the linear-regression baseline is explained the
+    same way, written under ``<results_dir>/residual_baseline/shap/``. See
+    ``src/shap_explain.py::save_row_interactions``. This does not require
+    ``predictions.enabled``.
+
+    ``row_ids`` are the dataset's own row identifiers (e.g. subject IDs),
+    aligned to ``X``/``y`` in the same order -- used (instead of a plain
+    positional index) wherever a saved array needs to be traced back to a
+    sample. Defaults to the positional index when not given.
     """
     task_type = cfg.get("model", {}).get("type", "regression")
     is_classification = task_type == "binary_classification"
@@ -219,6 +295,9 @@ def nested_cv(
     shap_cfg = cfg.get("shap", {}) or {}
     shap_enabled = bool(shap_cfg.get("enabled", False))
 
+    predictions_cfg = cfg.get("predictions", {}) or {}
+    save_predictions = bool(predictions_cfg.get("enabled", False))
+
     # Per-epoch train/test curves on the outer fold. Recording defaults on (it
     # only costs anything for epoch-based models); rendering is opt-in.
     curves_cfg = cfg.get("training_curves", {}) or {}
@@ -227,6 +306,8 @@ def nested_cv(
 
     X_arr = np.asarray(X, dtype=np.float32)
     y_arr = np.asarray(y, dtype=np.float32).ravel()
+    y_original = y_arr.copy()
+    row_ids_arr = np.asarray(row_ids) if row_ids is not None else np.arange(len(y_arr))
 
     outer_kfold = KFold(n_splits=outer_cv, shuffle=True, random_state=42)
     # Materialised once so the residual pass and the real model below are
@@ -235,9 +316,14 @@ def nested_cv(
     fold_splits = list(outer_kfold.split(X_arr))
 
     residual_baseline: dict | None = None
+    linear_baseline_preds: np.ndarray | None = None
+    baseline_shap_folds: list[dict] = []
     if residual_enabled:
-        y_arr, residual_baseline = _residual_target(
-            X_arr, y_arr, fold_splits, cfg, experiment_name
+        y_arr, residual_baseline, linear_baseline_preds, baseline_shap_folds = _residual_target(
+            X_arr, y_arr, fold_splits, cfg, experiment_name,
+            feature_names=feature_names, results_dir=results_dir,
+            shap_cfg=shap_cfg, shap_enabled=shap_enabled,
+            save_predictions=save_predictions, row_ids=row_ids_arr,
         )
 
     fold_metrics: list[dict] = []
@@ -247,6 +333,7 @@ def nested_cv(
     fold_init_params: list[dict] = []               # populated only for MDN
     fold_training_curves: list[dict] = []           # populated only for epoch-based models
     fold_shap: list[dict] = []                      # populated only when shap.enabled
+    main_preds = np.full(len(y_arr), np.nan, dtype=np.float32)  # populated only when save_predictions
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -383,6 +470,9 @@ def nested_cv(
                     history=epoch_history,
                 )
 
+        if save_predictions:
+            main_preds[test_idx] = np.asarray(preds, dtype=np.float32).ravel()
+
         if model_name == "mdn" and task_type == "binary_classification":
             metrics = classification_metrics(
                 (np.asarray(y_test_outer) >= 1.0).astype(int),
@@ -415,6 +505,8 @@ def nested_cv(
                     experiment_name=experiment_name, shap_cfg=shap_cfg,
                     results_dir=Path(results_dir) if results_dir else Path("./results") / experiment_name,
                     y_background=y_train_final,
+                    test_idx=test_idx,
+                    row_ids=row_ids_arr[test_idx],
                 )
                 if fold_summary:
                     fold_shap.append(fold_summary)
@@ -470,6 +562,44 @@ def nested_cv(
             experiment_name=experiment_name,
             shap_cfg=shap_cfg,
         )
+    if baseline_shap_folds:
+        # Same aggregation as fold_shap above, but for the residual baseline's
+        # LinearRegression -- written under residual_baseline/shap/ so its mean
+        # InteractionValues JSON and plots never collide with the real model's.
+        baseline_shap_mean = aggregate_fold_shap(
+            baseline_shap_folds,
+            results_dir=(Path(results_dir) if results_dir else Path("./results") / experiment_name)
+                / "residual_baseline",
+            experiment_name=f"{experiment_name} residual baseline",
+            shap_cfg=shap_cfg,
+        )
+        if residual_baseline is not None:
+            residual_baseline["shap_mean_values"] = baseline_shap_mean
+
+    if save_predictions:
+        out_root = Path(results_dir) if results_dir else Path("./results") / experiment_name
+        pred_dir = out_root / "predictions"
+        pred_dir.mkdir(parents=True, exist_ok=True)
+        fold_assignment = np.zeros(len(y_original), dtype=np.int32)
+        for fold, (_, test_idx) in enumerate(fold_splits):
+            fold_assignment[test_idx] = fold + 1
+
+        save_kwargs = dict(
+            row_ids=row_ids_arr,
+            y_true=y_original,
+            preds=main_preds,
+            fold_assignment=fold_assignment,
+        )
+        if residual_enabled:
+            # y_arr at this point is the residual target the real model was
+            # trained on (see the reassignment near the top of this function).
+            save_kwargs["residual_target"] = y_arr
+            save_kwargs["linear_baseline_preds"] = linear_baseline_preds
+
+        pred_path = pred_dir / "predictions.npz"
+        np.savez(pred_path, **save_kwargs)
+        print(f"[{experiment_name}] predictions saved to {pred_path}")
+
     return result
 
 
