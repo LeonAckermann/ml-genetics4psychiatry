@@ -696,6 +696,14 @@ def main() -> None:
         ignore_cols = [c for c in data_cfg.get("ignore_columns", []) if c in df_pandas.columns]
         id_cols = [col for col in ["ID"] if col in df_pandas.columns]
         drop_cols = list(dict.fromkeys([target_col] + id_cols + ignore_cols))
+        # Dataset row identifiers, kept alongside X/y (not just dropped with
+        # the other id_cols) so predictions and per-row SHAP values saved by
+        # nested_cv can be traced back to the sample they came from. Falls
+        # back to the positional row index when there's no "ID" column.
+        row_ids = (
+            df_pandas[id_cols[0]].to_numpy() if id_cols
+            else np.arange(len(df_pandas))
+        )
         X = df_pandas.drop(columns=drop_cols)
         y = df_pandas[target_col]
 
@@ -714,6 +722,7 @@ def main() -> None:
             idx      = np.sort(rng.choice(n_total, size=n_sample, replace=False))
             X = X.iloc[idx].reset_index(drop=True)
             y = y.iloc[idx].reset_index(drop=True)
+            row_ids = row_ids[idx]
             print(f"  Random subsample: {n_sample:,}/{n_total:,} rows (rand={rand_frac:g})")
 
         # ── Optional sign-flip of negative labels + their features ────────────
@@ -780,6 +789,7 @@ def main() -> None:
             experiment_name=experiment_name,
             feature_names=list(X.columns),
             results_dir=results_dir,
+            row_ids=row_ids,
         )
 
         output.update({
