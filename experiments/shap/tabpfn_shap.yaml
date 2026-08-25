@@ -60,6 +60,15 @@ data:
   # reused as written. max_target_corr applies either way (see above).
   sampling: false
   invert: true
+  whitening:
+    enabled: true
+    sigma_path: data/pipeline/input/gwas_pheno/covariance_spd.csv # pre-regularized Sigma (SPD) for ZCA whitening
+    search_alpha: false # use the pre-regularized Sigma as-is, no per-target null search
+    transform_method: zca
+  residual: true
+
+predictions:
+  enabled: true
 
 experiment:
   run: true
@@ -115,3 +124,4 @@ shap:
   abbreviate_names: false
   # joblib workers for explaining a fold's rows. Leave unset (serial) for TabPFN.
   # n_jobs: -1
+  store: true

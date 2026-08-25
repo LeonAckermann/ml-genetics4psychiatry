@@ -1,3 +1,4 @@
+from .config import DataConfig, HPOConfig, RootConfig
 from .cv import nested_cv
 from .evaluation import (
     aggregate_metrics,
@@ -8,11 +9,14 @@ from .evaluation import (
     report_fold_metrics,
 )
 from .hpo import build_model, get_default_search_space
-from .shap_explain import explain_fold
+from .log import plot_training_curves
+from .shap import explain_fold
 from .training import train
-from .training_curves import plot_training_curves
 
 __all__ = [
+    "DataConfig",
+    "HPOConfig",
+    "RootConfig",
     "nested_cv",
     "compute_metrics",
     "regression_metrics",

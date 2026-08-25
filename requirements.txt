@@ -13,6 +13,8 @@ tabpfn-extensions
 polars
 pyarrow
 optuna
+pydantic
 umap-learn
+wandb
 shap
 shapiq
