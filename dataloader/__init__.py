@@ -1,6 +1,6 @@
 """Data loading package."""
 
-from .preprocess import DataConfig, load_csv, load_txt, load_txt_polars, preprocess, sample  # noqa: F401
+from .preprocess import DataConfig, load_csv, load_id_chromosome_map, load_txt, load_txt_polars, preprocess, sample  # noqa: F401
 from .GWASDataset import GWASDataset  # noqa: F401
 from .dataloader import load_illness_data, prepare_data_splits, load_data_split, get_significant, get_significant_metrics, get_significant_no_data_leakage, apply_significant_no_data_leakage  # noqa: F401
 from .pipeline import (  # noqa: F401

@@ -127,6 +127,86 @@ def get_default_search_space(model_name: str, task_type: str) -> dict:
     return _DEFAULT_SPACES.get((model_name, task_type), {})
 
 
+# ---------------------------------------------------------------------------
+# Default (no-HPO) hyperparameters
+# ---------------------------------------------------------------------------
+#
+# One concrete point per model+task, used whenever a fold trains without a
+# hyperparameter search (n_trials == 0: plain cross-fold validation, or
+# cv.type == "chromosome", which always forces HPO off -- see src/cv.py and
+# main.py). Without this, that path fell through to whatever `params.get(key,
+# <default>)` each build_model branch happened to hard-code inline -- correct,
+# but invisible in the saved results (fold_best_params showed `{}`) and
+# scattered rather than reviewable in one place. Each entry is a sensible
+# interior point of that model's own _DEFAULT_SPACES entry above (not the
+# search space's edge), or -- where a model has no search space at all
+# (lasso/ridge/elastic/logistic families, bayesian_ridge) -- a standard
+# default for that estimator. A pinned scalar already set under `model:` in
+# the config always overrides the matching key here (see nested_cv's
+# `{**get_default_params(...), **pinned}` merge).
+_DEFAULT_PARAMS: dict[tuple[str, str], dict] = {
+    ("xgboost", "regression"): {
+        "n_estimators": 300, "max_depth": 6, "learning_rate": 0.05,
+        "subsample": 0.8, "colsample_bytree": 0.8,
+    },
+    ("xgboost", "binary_classification"): {
+        "n_estimators": 300, "max_depth": 6, "learning_rate": 0.05,
+        "subsample": 0.8, "colsample_bytree": 0.8,
+        "reg_alpha": 0.0, "reg_lambda": 1.0, "min_child_weight": 1.0, "gamma": 0.0,
+    },
+    ("dnn", "regression"): {
+        "hidden_dim": 64, "n_layers": 2, "dropout": 0.2,
+        "learning_rate": 1e-3, "batch_size": 32, "epochs": 100, "patience": 20,
+    },
+    ("dnn", "binary_classification"): {
+        "hidden_dim": 64, "n_layers": 2, "dropout": 0.2,
+        "learning_rate": 1e-3, "batch_size": 32, "epochs": 100, "patience": 20,
+    },
+    ("lasso_regression", "regression"): {"alpha": 1.0},
+    ("ridge_regression", "regression"): {"alpha": 1000.0},
+    ("elastic_regression", "regression"): {"alpha": 0.07, "l1_ratio": 0.1},
+    ("logistic_regression", "binary_classification"): {
+        "C": 1.0, "class_weight": "balanced",
+    },
+    ("ridge_logistic_regression", "binary_classification"): {
+        "C": 1.0, "class_weight": "balanced",
+    },
+    ("lasso_logistic_regression", "binary_classification"): {
+        "C": 1.0, "class_weight": "balanced",
+    },
+    ("elastic_logistic_regression", "binary_classification"): {
+        "C": 1.0, "l1_ratio": 0.5, "class_weight": "balanced",
+    },
+    ("bayesian_ridge_regression", "regression"): {
+        "alpha_1": 1e-6, "alpha_2": 1e-6, "lambda_1": 1e-6, "lambda_2": 1e-6,
+        "max_iter": 300, "tol": 1e-3, "fit_intercept": True,
+    },
+    # linear_regression (no hyperparameters) and tabpfn (no tunable knob
+    # unless model.finetune is set, which is itself a pinned scalar rather
+    # than something to default) are intentionally absent -- get_default_params
+    # returns {} for them, same as an unlisted model.
+}
+_DEFAULT_PARAMS[("residual_dnn", "regression")] = _DEFAULT_PARAMS[("dnn", "regression")]
+_DEFAULT_PARAMS[("residual_dnn", "binary_classification")] = _DEFAULT_PARAMS[("dnn", "binary_classification")]
+
+_DEFAULT_PARAMS[("mdn", "regression")] = {
+    "hidden_dim": 64, "n_layers": 2, "dropout": 0.3,
+    "learning_rate": 1e-4, "weight_decay": 0.0,
+    "batch_size": 32, "epochs": 200, "patience": 20, "number_of_components": 2,
+}
+_DEFAULT_PARAMS[("mdn", "binary_classification")] = _DEFAULT_PARAMS[("mdn", "regression")]
+
+
+def get_default_params(model_name: str, task_type: str) -> dict:
+    """Return the curated default hyperparameters for a model with no HPO run.
+
+    Empty dict for a model with none defined (e.g. ``linear_regression``,
+    ``tabpfn``) -- ``build_model``'s own inline fallbacks still apply in that
+    case, unchanged from before this existed.
+    """
+    return dict(_DEFAULT_PARAMS.get((model_name, task_type), {}))
+
+
 def suggest_params(trial, search_space: dict, model_name: str) -> dict:
     """Sample one hyperparameter configuration from search_space via an Optuna trial."""
     def _is_numeric(v) -> bool:
