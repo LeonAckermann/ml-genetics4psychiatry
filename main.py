@@ -17,7 +17,7 @@ import numpy as np
 import yaml
 from pydantic import ValidationError
 
-from dataloader import load_illness_data, load_txt, load_txt_polars
+from dataloader import load_id_chromosome_map, load_illness_data, load_txt, load_txt_polars
 from dataloader.pipeline import (
     aligne_clumped_illness_mri,
     aligne_clumped_phenotype,
@@ -321,6 +321,26 @@ def main() -> None:
     outer_cv = hpo_cfg.get("outer_cv", 5)
     inner_cv = hpo_cfg.get("inner_cv", 5)
 
+    # ── Resolve CV type ────────────────────────────────────────────────────────
+    # "chromosome" groups rows (SNPs) by chromosome -- one leave-one-out fold
+    # per chromosome present, resolved via each row's ID against
+    # cv.chrom_map_path -- instead of a random KFold split. It always disables
+    # hyperparameter search (a single held-out chromosome has no natural inner
+    # split to nest one inside), so every fold trains with the plain `model:`
+    # config values. See documentation/3_cross_fold_validation.md.
+    cv_type = validated.cv.type
+    chrom_map: dict | None = None
+    if cv_type == "chromosome":
+        if hpo_enabled:
+            print("cv.type=chromosome — ignoring hpo.run: true (leave-one-"
+                  "chromosome-out CV always uses the plain model: config "
+                  "values for every fold, no inner hyperparameter search).")
+            hpo_enabled = False
+        print(f"cv.type=chromosome — loading chromosome map from "
+              f"{validated.cv.chrom_map_path}...")
+        chrom_map = load_id_chromosome_map(validated.cv.chrom_map_path)
+        print(f"  loaded chromosome assignments for {len(chrom_map):,} SNP ID(s)")
+
     if not (cfg["experiment"].get("run", True) or hpo_enabled or load_best_params_file):
         print("Experiment run flag is False — skipping training and evaluation.")
         return
@@ -534,10 +554,12 @@ def main() -> None:
 
         same_category_suffix = "_samecatexcl" if data_cfg.get("exclude_same_category", False) else ""
 
+        cv_suffix = "_chromcv" if cv_type == "chromosome" else ""
+
         if using_custom_data:
-            experiment_name = f"{model_name}_{illness}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}{same_category_suffix}"
+            experiment_name = f"{model_name}_{illness}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}{same_category_suffix}{cv_suffix}"
         else:
-            experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}{same_category_suffix}"
+            experiment_name = f"{model_name}_{illness}_p{p}_{dist}_{row_ratio}_{col_ratio}_{task_type}{noise_suffix}{rand_suffix}{pca_suffix}{whitening_suffix}{residual_suffix}{same_category_suffix}{cv_suffix}"
         results_dir = Path("./results") / experiment_name
         results_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -775,6 +797,11 @@ def main() -> None:
             df_pandas[id_cols[0]].to_numpy() if id_cols
             else np.arange(len(df_pandas))
         )
+        if cv_type == "chromosome" and not id_cols:
+            raise ValueError(
+                "cv.type=chromosome requires an 'ID' column (SNP rsIDs) in the "
+                "loaded data to look up each row's chromosome — this dataset has none."
+            )
         X = df_pandas.drop(columns=drop_cols)
         y = df_pandas[target_col]
 
@@ -848,8 +875,16 @@ def main() -> None:
             if not get_default_search_space(model_name, task_type):
                 n_trials = 0
         else:
-            # Plain evaluation using the hyperparameters from the config file
-            best_params_for_eval = [dict(iter_cfg["model"])] * outer_cv
+            # Plain evaluation, no HPO (hpo.run: false, or cv.type=chromosome
+            # forced it off above): best_params_for_eval is left as None so
+            # nested_cv's n_trials=0 branch merges this model's curated
+            # defaults (src/hpo.py::get_default_params) with any pinned
+            # cfg["model"] scalar for every fold -- see src/cv.py. Left None
+            # rather than a precomputed [dict(iter_cfg["model"])] * outer_cv
+            # list both because that would skip the curated defaults entirely
+            # (best_params_list would take precedence over them) and because
+            # under cv.type=chromosome the fold count isn't known until
+            # nested_cv builds the chromosome-grouped folds from the data.
             n_trials = 0
 
         # ── Single nested CV call covers HPO + evaluation ─────────────────────
@@ -862,6 +897,8 @@ def main() -> None:
             n_trials=n_trials,
             search_space=hpo_cfg.get("search_space"),
             best_params_list=best_params_for_eval,
+            cv_type=cv_type,
+            chrom_map=chrom_map,
             experiment_name=experiment_name,
             feature_names=list(X.columns),
             results_dir=results_dir,

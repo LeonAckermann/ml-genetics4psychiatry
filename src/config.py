@@ -140,6 +140,7 @@ class DataConfig(BaseModel):
     sampling: bool = False
     invert: bool = False
     residual: bool = False
+    residual_baseline_model: str = "linear_regression"
     exclude_same_category: bool = False
     ignore_columns: list[str] = Field(default_factory=list)
     rand: float | list[float] = 1.0
@@ -278,6 +279,26 @@ class PhenotypeClumpingConfig(BaseModel):
 # ---------------------------------------------------------------------------
 # hpo:
 # ---------------------------------------------------------------------------
+
+class CVConfig(BaseModel):
+    """`cv:` -- selects how the outer cross-validation folds are built.
+
+    `type: chromosome` groups rows (SNPs) by chromosome -- looked up by each
+    row's `ID` (rsID) in `chrom_map_path`, the joined GWAS z-score matrix that
+    still carries `chrom` (the trained-on feature matrix itself drops it) --
+    and evaluates leave-one-chromosome-out, one fold per chromosome present
+    (22 for the standard autosomes). This mode always disables hyperparameter
+    search (see main.py): every fold trains with the plain `model:` config
+    values, since there's no natural inner split to nest a search inside a
+    single held-out chromosome. `hpo.outer_cv` is ignored under this mode --
+    the fold count is however many chromosomes are actually present.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["kfold", "chromosome"] = "kfold"
+    chrom_map_path: str = "data/pipeline/input/gwas_pheno/all_z_scores_imputed.txt"
+
 
 class HPOConfig(BaseModel):
     """Validates the `hpo:` block when it's a dict (a bare `hpo: true` is also valid
@@ -462,6 +483,7 @@ class RootConfig(BaseModel):
     # `hpo: true` (bare bool, meaning "on, with every default") is also valid --
     # see main.py's hpo_enabled resolution -- so this isn't just HPOConfig.
     hpo: bool | HPOConfig = Field(default_factory=lambda: HPOConfig(run=False))
+    cv: CVConfig = Field(default_factory=CVConfig)
 
     noise: NoiseConfig = Field(default_factory=NoiseConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)

@@ -287,6 +287,28 @@ def ensure_matrix_parquet(gwas_pheno_path, null_vals=_MATRIX_NULL_VALS, verbose=
         return None
 
 
+def load_id_chromosome_map(gwas_pheno_path, use_parquet=True) -> dict:
+    """Map every SNP's ``ID`` (rsID) to its chromosome, read from the joined
+    GWAS z-score matrix (e.g. all_z_scores_imputed.txt), whose ``ID``/``chrom``
+    columns are the source of truth -- the trained-on feature matrix drops
+    both (see aligne_clumped_phenotype/aligne_clumped_illness_mri), so a
+    chromosome-grouped CV split (``cv.type: chromosome``) needs this lookup to
+    recover each row's chromosome from its ID alone.
+
+    Prefers the Parquet twin of ``gwas_pheno_path`` (columnar/typed -- no text
+    parsing) via ``ensure_matrix_parquet``, building it if missing; falls back
+    to scanning the .txt directly. Only the two needed columns are read.
+    """
+    path = Path(gwas_pheno_path).expanduser().resolve()
+    pq_path = ensure_matrix_parquet(path) if use_parquet else None
+    if pq_path is not None:
+        lf = pl.scan_parquet(str(pq_path))
+    else:
+        lf = pl.scan_csv(str(path), separator="\t", null_values=_MATRIX_NULL_VALS)
+    df = lf.select(["ID", "chrom"]).collect()
+    return dict(zip(df["ID"].to_list(), df["chrom"].to_list()))
+
+
 def load_phenotype_clumped_data(
     phenotype: str,
     gwas_pheno_path,
