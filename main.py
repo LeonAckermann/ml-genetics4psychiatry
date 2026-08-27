@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import yaml
+from pydantic import ValidationError
 
 from dataloader import load_illness_data, load_txt, load_txt_polars
 from dataloader.pipeline import (
@@ -29,7 +30,7 @@ from dataloader.pipeline import (
     select_dense_features,
 )
 from dataloader.preprocess import drop_same_category_features, drop_target_correlated_features, sample
-from src import get_default_search_space, nested_cv
+from src import RootConfig, get_default_search_space, nested_cv
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +138,29 @@ def pipeline(cfg: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Config validation
+# ---------------------------------------------------------------------------
+
+def validate_config(cfg: dict, config_path: Path) -> RootConfig:
+    """Validate the entire config against src.config.RootConfig.
+
+    Catches typo'd or wrong-type keys at startup instead of a `dict.get(...)`
+    call somewhere deep in the pipeline silently ignoring them, and exits with
+    a readable message on failure rather than a raw pydantic traceback.
+
+    Returns the validated model so callers can read the handful of values
+    that have been migrated to use it directly (see the "Per-experiment loop"
+    setup in main()); everything else still reads the original `cfg` dict --
+    see src/config.py's module docstring for why that migration is
+    deliberately partial for now.
+    """
+    try:
+        return RootConfig(**cfg)
+    except ValidationError as e:
+        raise SystemExit(f"Invalid config {config_path}:\n\n{e}")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -165,7 +189,9 @@ def main() -> None:
     with open(config_path) as fh:
         cfg = yaml.safe_load(fh)
 
-    plink_cfg = cfg["plink2"]
+    validated = validate_config(cfg, config_path)
+
+    plink_cfg = cfg.get("plink2", {})
     construct_cfg = cfg.get("construct_gwas_mri", {})
     gwas_phenotype_cfg = cfg.get("gwas_phenotype_construction", {})
     phenotype_clumping_cfg = cfg.get("phenotype_clumping", {})
@@ -292,37 +318,52 @@ def main() -> None:
     load_best_params_file = args.load_best_params
     load_best_params_from_config = cfg.get("load_best_params", False)
 
-    outer_cv = hpo_cfg.get("outer_cv", data_cfg.get("n_splits", 5))
-    inner_cv = hpo_cfg.get("inner_cv", 3)
+    outer_cv = hpo_cfg.get("outer_cv", 5)
+    inner_cv = hpo_cfg.get("inner_cv", 5)
 
     if not (cfg["experiment"].get("run", True) or hpo_enabled or load_best_params_file):
         print("Experiment run flag is False — skipping training and evaluation.")
         return
 
     # ── Per-experiment loop ───────────────────────────────────────────────────
-    # cfg["model"]["types"] allows looping over multiple task types in one run.
-    # Falls back to the single cfg["model"]["type"] for backward compatibility.
-    model_task_types: list[str] = cfg["model"].get(
-        "types", [cfg["model"].get("type", "regression")]
+    # model.names allows looping over multiple model families in one run (e.g.
+    # ["linear", "xgboost", "tabpfn"]). Falls back to the single model.name for
+    # backward compatibility. Both must resolve to at least one entry -- unlike
+    # the old cfg["model"]["name"] bracket access, this is an explicit check
+    # rather than a bare KeyError when neither is set.
+    model_family_list: list[str] = validated.model.names or (
+        [validated.model.name] if validated.model.name else []
+    )
+    if not model_family_list:
+        raise ValueError("Config must set model.name or model.names")
+
+    # model.type is normally a list (["regression"] or
+    # ["regression", "binary_classification"]) to loop over multiple task types
+    # in one run; a bare string is also accepted and normalized to a
+    # single-element list here -- previously a bare string silently iterated
+    # over its characters instead (see documentation/3_adding_a_new_model.md).
+    model_task_types: list[str] = (
+        [validated.model.type] if isinstance(validated.model.type, str) else validated.model.type
     )
 
-    # Noise levels: cfg["noise"]["sigma"] may be a scalar or a list.
-    _noise_cfg = cfg.get("noise", {}) or {}
-    _raw_sigma = _noise_cfg.get("sigma", [0.0])
+    # Noise levels: noise.sigma may be a scalar or a list.
     noise_levels: list[float] = (
-        [float(_raw_sigma)] if not isinstance(_raw_sigma, list) else [float(s) for s in _raw_sigma]
+        [float(validated.noise.sigma)] if not isinstance(validated.noise.sigma, list)
+        else [float(s) for s in validated.noise.sigma]
     )
 
     # Random row fractions: data.rand may be a scalar or a list.
-    _raw_rand = data_cfg.get("rand", [1.0])
     rand_fracs: list[float] = (
-        [float(_raw_rand)] if not isinstance(_raw_rand, list) else [float(r) for r in _raw_rand]
+        [float(validated.data.rand)] if not isinstance(validated.data.rand, list)
+        else [float(r) for r in validated.data.rand]
     )
 
     # PCA settings: data.pca may be a scalar, list, or null.
     # Accepted values: float (0,1) for variance threshold, "effective", null.
-    _raw_pca = data_cfg.get("pca", [None])
-    if not isinstance(_raw_pca, list):
+    _raw_pca = validated.data.pca
+    if _raw_pca is None:
+        _raw_pca = [None]
+    elif not isinstance(_raw_pca, list):
         _raw_pca = [_raw_pca]
     def _parse_pca(v):
         if v is None:
@@ -337,9 +378,27 @@ def main() -> None:
     # other data.* setting keeps its default; the target column is resolved via
     # data.target or data.target_regex. data.dir does the same but for every
     # matching file in a folder, running one separate experiment per file.
-    custom_data_path = data_cfg.get("path")
-    custom_data_dir = data_cfg.get("dir")
+    custom_data_path = validated.data.path
+    custom_data_dir = validated.data.dir
     using_custom_data = bool(custom_data_path or custom_data_dir)
+
+    # These data.* keys belong to the GWAS illness/phenotype construction
+    # pipeline and are meaningless once data.path/data.dir + data.target(_regex)
+    # point straight at a prepared tabular file — ignore them entirely rather
+    # than letting a stray leftover value from a copy-pasted config silently
+    # take effect.
+    _GWAS_ONLY_DATA_KEYS = frozenset({
+        "illness", "min_density", "density_json", "gwas_pheno_path",
+        "info_csv_path", "p_clump", "distribution",
+        "min_complete_frac", "max_target_corr",
+    })
+    if using_custom_data:
+        _ignored_keys = sorted(k for k in _GWAS_ONLY_DATA_KEYS if k in data_cfg)
+        if _ignored_keys:
+            print(f"data.path/data.dir is set — ignoring GWAS-pipeline-only "
+                  f"data.* keys: {', '.join(_ignored_keys)}")
+        data_cfg = {k: v for k, v in data_cfg.items() if k not in _GWAS_ONLY_DATA_KEYS}
+
     data_path_by_stem: dict[str, Path] = {}
 
     if custom_data_dir:
@@ -377,47 +436,57 @@ def main() -> None:
         # density-frontier selection (same features used for clumping) when
         # data.min_density is set; otherwise fall back to every include=1 phenotype
         # from info.csv that's present as a column in the gwas_pheno matrix.
-        illness_list = data_cfg.get("illness") or []
+        illness_list = validated.data.illness or []
         if not illness_list:
-            min_density = data_cfg.get("min_density")
+            min_density = validated.data.min_density
             if min_density is not None:
-                density_json = data_cfg.get(
-                    "density_json", "./data/pipeline/analysis/dense_density.json")
+                density_json = validated.data.density_json
                 illness_list = select_dense_features(density_json, float(min_density))
                 print(f"data.illness is empty — selected {len(illness_list)} phenotypes "
                       f"at density >= {min_density} from {density_json}: "
                       f"{', '.join(illness_list)}")
             else:
+                if not validated.data.gwas_pheno_path or not validated.data.info_csv_path:
+                    raise ValueError(
+                        "data.illness is empty and data.min_density is unset -- "
+                        "data.gwas_pheno_path and data.info_csv_path are required "
+                        "to auto-detect the phenotype list from info.csv"
+                    )
                 illness_list = included_phenotype_columns(
-                    data_cfg["gwas_pheno_path"], data_cfg["info_csv_path"],
+                    validated.data.gwas_pheno_path, validated.data.info_csv_path,
                 )
                 print(f"data.illness is empty — auto-detected {len(illness_list)} phenotypes "
                       f"from info.csv: {', '.join(illness_list)}")
-        distribution_list = data_cfg.get("distribution", [])
-        p_clump_list = data_cfg.get("p_clump", [])
-        row_ratio_list = data_cfg.get("row_ratio", [1.0])
-        col_ratio_list = data_cfg.get("col_ratio", [1.0])
+        distribution_list = validated.data.distribution
+        p_clump_list = validated.data.p_clump
+        row_ratio_list = validated.data.row_ratio
+        col_ratio_list = validated.data.col_ratio
 
-    for dist, p, illness, row_ratio, col_ratio, task_type, noise_sigma, rand_frac, pca_var in product(
+    for dist, p, illness, row_ratio, col_ratio, task_type, model_family, noise_sigma, rand_frac, pca_var in product(
         distribution_list,
         p_clump_list,
         illness_list,
         row_ratio_list,
         col_ratio_list,
-        cfg["model"].get("type", ["regression"]),
+        model_task_types,
+        model_family_list,
         noise_levels,
         rand_fracs,
         pca_values,
     ):
-        model_family = cfg["model"]["name"]
         model_name = resolve_model_name(model_family, task_type)
 
         # Per-iteration cfg copy: override model.type, noise.sigma, and
         # data.pca_components so downstream calls see the correct values.
+        # model.overrides.<family> holds params specific to one model family
+        # (e.g. tabpfn's finetune/learning_rate) so looping over model.names
+        # doesn't leak one model's extra params into another's pinned params
+        # (see src/cv.py::_pinned_params).
+        model_overrides = (validated.model.overrides or {}).get(model_family, {})
         iter_cfg = {
             **cfg,
-            "model": {**cfg["model"], "type": task_type},
-            "noise": {**(_noise_cfg), "sigma": noise_sigma},
+            "model": {**cfg["model"], **model_overrides, "type": task_type},
+            "noise": {**cfg.get("noise", {}), "sigma": noise_sigma},
             "data":  {**data_cfg, "pca": pca_var},
         }
 
@@ -584,7 +653,9 @@ def main() -> None:
 
         # ── Optional: drop rows with any missing value (complete-case matrix) ──
         # Feature columns (other phenotypes) can be null at a phenotype's selec
-        # SNPs; enable data.drop_missing to train on a fully non-null matrix.
+        # SNPs; defaults on (a complete-case matrix is the safe default for a
+        # generic new dataset) — set data.drop_missing: false to keep rows with
+        # missing values.
         # Runs before whitening (moved here from after max_target_corr) so
         # drop_missing_stats reports the true missingness in the loaded data —
         # apply_whitening also drops incomplete rows internally, and with
@@ -592,7 +663,7 @@ def main() -> None:
         # the row-count accounting in one place instead of split across two
         # silently-overlapping steps.
         drop_missing_stats = None
-        if data_cfg.get("drop_missing", False):
+        if data_cfg.get("drop_missing", True):
             n_before = len(df_pandas)
             df_pandas = df_pandas.dropna().reset_index(drop=True)
             n_after = len(df_pandas)
@@ -767,8 +838,13 @@ def main() -> None:
             # Evaluate with pre-loaded params — no optimisation
             n_trials = 0
         elif hpo_enabled:
-            # Run HPO; models without a search space fall back to n_trials=0
-            n_trials = hpo_cfg.get("n_trials", 100)
+            # Run HPO; models without a search space fall back to n_trials=0.
+            # hpo.n_trials_by_model.<model_family> overrides the shared
+            # hpo.n_trials for that one model family, so a job spanning
+            # several models (model.names) can give each its own trial budget.
+            n_trials = hpo_cfg.get("n_trials_by_model", {}).get(
+                model_family, hpo_cfg.get("n_trials", 30)
+            )
             if not get_default_search_space(model_name, task_type):
                 n_trials = 0
         else:

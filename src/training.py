@@ -1,6 +1,8 @@
 """Unified training entry point for sklearn and DNN models."""
 from __future__ import annotations
 
+from typing import Callable
+
 import numpy as np
 
 
@@ -15,6 +17,7 @@ def train(
     cfg: dict,
     return_model: bool = False,
     history: list | None = None,
+    on_epoch: Callable[[dict], None] | None = None,
 ) -> np.ndarray:
     """Return test-set predictions (and, if return_model=True, the fitted model too).
 
@@ -27,22 +30,29 @@ def train(
     Not supported for MDN (out of scope — callers must not pass return_model=True
     when model_or_cfg builds an MDN).
 
-    ``history``: pass a list to have one record per epoch appended to it (train
-    and outer-test loss + score). Passed as a mutable out-parameter rather than
-    a return value so the return arity stays fixed for every caller. Only the
-    epoch-based paths (DNN, MDN) fill it; sklearn models leave it empty.
+    ``history``: pass a list to have one record per epoch (or, for XGBoost, per
+    boosting round) appended to it -- train/test loss + score. Passed as a
+    mutable out-parameter rather than a return value so the return arity stays
+    fixed for every caller. Populated for DNN, MDN, and XGBoost (regardless of
+    whether XGBoost's early stopping is configured); every other sklearn model
+    has no per-step curve and leaves it empty.
+
+    ``on_epoch``: optional callback invoked with that same record the moment
+    it's produced -- i.e. live, during training, not batched at the end (see
+    src/log.py). Ignored for models with no per-step curve.
     """
     if isinstance(model_or_cfg, dict) and "class" in model_or_cfg:
         from model import MDN
         if model_or_cfg["class"] is MDN:
-            preds, _pi, _mu, _init_mu, _init_sigma = train_mdn(model_or_cfg, X_train, y_train, X_val, y_val, X_test, cfg, y_test=y_test, history=history)
+            preds, _pi, _mu, _init_mu, _init_sigma = train_mdn(model_or_cfg, X_train, y_train, X_val, y_val, X_test, cfg, y_test=y_test, history=history, on_epoch=on_epoch)
             return preds
-        preds, fitted = _train_dnn(model_or_cfg, X_train, y_train, X_val, y_val, X_test, cfg, y_test=y_test, history=history)
+        preds, fitted = _train_dnn(model_or_cfg, X_train, y_train, X_val, y_val, X_test, cfg, y_test=y_test, history=history, on_epoch=on_epoch)
         return (preds, fitted) if return_model else preds
     preds, fitted = _train_sklearn(
         model_or_cfg, X_train, y_train, X_val, y_val, X_test,
         y_test=y_test,
         task_type=cfg.get("model", {}).get("type", "regression"),
+        on_epoch=on_epoch,
         history=history,
     )
     return (preds, fitted) if return_model else preds
@@ -126,6 +136,7 @@ def train_mdn(
     cfg: dict,
     y_test: np.ndarray | None = None,
     history: list | None = None,
+    on_epoch: Callable[[dict], None] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Train an MDN and return (expected_value_preds, pi, mu) on X_test.
 
@@ -257,7 +268,7 @@ def train_mdn(
         if record:
             tr_loss, tr_r2 = _mdn_epoch_scores(model, curve_train_loader, _mdn_nll, device)
             te_loss, te_r2 = _mdn_epoch_scores(model, curve_test_loader, _mdn_nll, device)
-            history.append({
+            record_dict = {
                 "epoch": epoch + 1,
                 "train_loss": tr_loss,          # mixture NLL, not MSE
                 "test_loss": te_loss,
@@ -265,7 +276,10 @@ def train_mdn(
                 "test_r2": te_r2,
                 "val_loss": val_loss,
                 "score_name": "r2",
-            })
+            }
+            history.append(record_dict)
+            if on_epoch is not None:
+                on_epoch(record_dict)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -324,7 +338,14 @@ def _xgb_curve_records(native, y_train, y_val, y_test, task_type) -> list[dict]:
     res = native.evals_result()
     if not res:
         return []
+    return _xgb_records_from_evals(res, y_train, y_val, y_test, task_type)
 
+
+def _xgb_records_from_evals(res, y_train, y_val, y_test, task_type) -> list[dict]:
+    """Shared core of _xgb_curve_records -- also called, growing by one round
+    each time, from _XgbLiveCallback for live (in-training) logging. `res` is
+    xgboost's evals_result()-shaped dict; a callback's `evals_log` argument has
+    the identical shape and can be passed here directly."""
     # Eval-set order is fixed by _train_sklearn below: val first, so that
     # validation_0 stays the set the early-stopping callback watches.
     named = {"val": res.get("validation_0", {}),
@@ -372,6 +393,27 @@ def _xgb_curve_records(native, y_train, y_val, y_test, task_type) -> list[dict]:
     return records
 
 
+def _make_xgb_live_callback(on_epoch, y_train, y_val, y_test, task_type):
+    """Build an xgboost TrainingCallback that fires ``on_epoch`` once per
+    boosting round, live during ``.fit()`` -- xgboost's C++ training loop only
+    returns to Python at each round boundary via this hook, so this is the
+    only way to log boosting-round metrics as they happen rather than after
+    the whole fit. Reuses _xgb_records_from_evals on xgboost's own growing
+    `evals_log`, so the live and post-hoc (_xgb_curve_records) records are
+    computed identically. Class is defined here (not at module level) so the
+    xgboost import stays lazy, matching the rest of this module."""
+    import xgboost as xgb
+
+    class _LiveCallback(xgb.callback.TrainingCallback):
+        def after_iteration(self, model, epoch, evals_log):
+            records = _xgb_records_from_evals(evals_log, y_train, y_val, y_test, task_type)
+            if records:
+                on_epoch(records[-1])
+            return False  # False = don't stop training
+
+    return _LiveCallback()
+
+
 def _train_sklearn(
     model,
     X_train: np.ndarray,
@@ -382,6 +424,7 @@ def _train_sklearn(
     y_test: np.ndarray | None = None,
     task_type: str = "regression",
     history: list | None = None,
+    on_epoch: Callable[[dict], None] | None = None,
 ) -> tuple[np.ndarray, object]:
     """Fit an sklearn-compatible model and return (predictions on X_test, fitted model).
 
@@ -392,6 +435,10 @@ def _train_sklearn(
     ``data_name="validation_0"``; putting the test split there instead would
     make early stopping select on the test set. Every other model family fits
     plainly and records nothing (no iteration axis to record).
+
+    ``on_epoch``, if given, is additionally invoked once per boosting round,
+    live during ``.fit()`` (see _make_xgb_live_callback) -- separate from
+    ``history``, which is only fully populated once ``.fit()`` returns.
     """
     native = _xgb_native(model)
     want_curves = history is not None and native is not None and y_test is not None
@@ -401,6 +448,9 @@ def _train_sklearn(
         # 'error' is what accuracy is derived from; 'rmse' is what the existing
         # early-stopping callback watches, so it must stay present.
         native.set_params(eval_metric=["logloss", "error"] if is_cls else ["rmse"])
+        if on_epoch is not None:
+            live_cb = _make_xgb_live_callback(on_epoch, y_train, y_val, y_test, task_type)
+            native.set_params(callbacks=[*(native.callbacks or []), live_cb])
         native.fit(
             X_train, y_train,
             eval_set=[(X_val, y_val), (X_train, y_train), (X_test, y_test)],
@@ -426,6 +476,7 @@ def _train_dnn(
     cfg: dict,
     y_test: np.ndarray | None = None,
     history: list | None = None,
+    on_epoch: Callable[[dict], None] | None = None,
 ) -> tuple[np.ndarray, object]:
     import torch
     from torch import nn, optim
@@ -505,7 +556,7 @@ def _train_dnn(
             # Before the early-stopping break, so the final epoch is recorded.
             tr_loss, tr_score = _epoch_scores(model, curve_train_loader, criterion, task_type, device)
             te_loss, te_score = _epoch_scores(model, curve_test_loader, criterion, task_type, device)
-            history.append({
+            record_dict = {
                 "epoch": epoch + 1,
                 "train_loss": tr_loss,
                 "test_loss": te_loss,
@@ -513,7 +564,10 @@ def _train_dnn(
                 f"test_{score_name}": te_score,
                 "val_loss": val_loss,          # the quantity early stopping acts on
                 "score_name": score_name,
-            })
+            }
+            history.append(record_dict)
+            if on_epoch is not None:
+                on_epoch(record_dict)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss

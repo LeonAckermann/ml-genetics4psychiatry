@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import optuna
-from optuna.samplers import TPESampler
+from optuna.samplers import CmaEsSampler, RandomSampler, TPESampler
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import StandardScaler
 
@@ -20,9 +20,18 @@ from .evaluation import (
     report_fold_metrics,
 )
 from .hpo import NEEDS_SCALING, NEEDS_VAL_SPLIT, build_model, get_default_search_space, suggest_params
-from .shap_explain import aggregate_fold_shap, explain_fold
+from .log import (
+    finish_run,
+    init_run,
+    log_fold_hyperparameters,
+    log_hyperparameter_table,
+    log_performance_table,
+    log_summary,
+    make_epoch_logger,
+    plot_training_curves,
+)
+from .shap import aggregate_fold_shap, explain_fold
 from .training import train, train_mdn
-from .training_curves import plot_training_curves
 
 
 def _apply_pca(
@@ -85,6 +94,19 @@ def _pinned_params(cfg: dict) -> dict:
         if not isinstance(v, (list, dict))
         and k not in ("name", "type", "p_value_binary")
     }
+
+
+def _make_sampler(cfg: dict, seed: int):
+    """Build the Optuna sampler chosen via hpo.sampler (default 'tpe', i.e.
+    TPESampler -- unchanged from before this was configurable). See
+    documentation/3_nested_cross_fold_validation.md#hyperparameter-optimization."""
+    hpo_cfg = cfg.get("hpo")
+    name = hpo_cfg.get("sampler", "tpe") if isinstance(hpo_cfg, dict) else "tpe"
+    if name == "random":
+        return RandomSampler(seed=seed)
+    if name == "cmaes":
+        return CmaEsSampler(seed=seed)
+    return TPESampler(seed=seed)
 
 
 def _needs_val_split(model_name: str, params: dict) -> bool:
@@ -253,10 +275,10 @@ def nested_cv(
     The scaler is always fit on the inner training split only to avoid leakage.
 
     When ``cfg["shap"]["enabled"]`` is true, each outer fold's final model is
-    explained on its test set via ``src.shap_explain.explain_fold`` after that
+    explained on its test set via ``src.shap.explain_fold`` after that
     fold's metrics are reported (never during inner-fold HPO). ``feature_names``
     and ``results_dir`` control where plots are written and how features are
-    labeled; see ``src/shap_explain.py`` for the full config schema.
+    labeled; see ``src/shap.py`` for the full config schema.
 
     When ``cfg["predictions"]["enabled"]`` is true, out-of-fold predictions
     (stitched across the outer folds into original row order) are saved to
@@ -270,7 +292,7 @@ def nested_cv(
     ``<results_dir>/shap/fold_<k>/row_interactions.npz`` -- and, under
     ``data.residual=true``, the linear-regression baseline is explained the
     same way, written under ``<results_dir>/residual_baseline/shap/``. See
-    ``src/shap_explain.py::save_row_interactions``. This does not require
+    ``src/shap.py::save_row_interactions``. This does not require
     ``predictions.enabled``.
 
     ``row_ids`` are the dataset's own row identifiers (e.g. subject IDs),
@@ -303,6 +325,8 @@ def nested_cv(
     curves_cfg = cfg.get("training_curves", {}) or {}
     curves_enabled = bool(curves_cfg.get("enabled", True))
     curves_plots = bool(curves_cfg.get("plots", False))
+
+    wandb_run = init_run(cfg, experiment_name, model_name, task_type)
 
     X_arr = np.asarray(X, dtype=np.float32)
     y_arr = np.asarray(y, dtype=np.float32).ravel()
@@ -395,6 +419,7 @@ def nested_cv(
             best_params = pinned
 
         fold_best_params.append(best_params)
+        log_fold_hyperparameters(wandb_run, fold, best_params)
 
         # ── Train best model on full outer train (val split only when needed) ──
         if _needs_val_split(model_name, best_params):
@@ -425,6 +450,7 @@ def nested_cv(
             X_test_outer  = _add_noise(X_test_outer,  sigma, rng)
 
         model = build_model(model_name, best_params, cfg)
+        on_epoch = make_epoch_logger(wandb_run, fold)
         if model_name == "mdn":
             preds, fold_pi, fold_mu, init_mu, init_sigma = train_mdn(
                 model,
@@ -434,6 +460,7 @@ def nested_cv(
                 cfg,
                 y_test=y_test_outer,
                 history=epoch_history,
+                on_epoch=on_epoch,
             )
             fold_init_params.append({
                 "init_mu": init_mu,
@@ -459,6 +486,7 @@ def nested_cv(
                     cfg,
                     return_model=True,
                     history=epoch_history,
+                    on_epoch=on_epoch,
                 )
             else:
                 preds = train(
@@ -468,6 +496,7 @@ def nested_cv(
                     X_test_outer, y_test_outer,
                     cfg,
                     history=epoch_history,
+                    on_epoch=on_epoch,
                 )
 
         if save_predictions:
@@ -600,6 +629,14 @@ def nested_cv(
         np.savez(pred_path, **save_kwargs)
         print(f"[{experiment_name}] predictions saved to {pred_path}")
 
+    if wandb_run is not None:
+        log_hyperparameter_table(wandb_run, fold_best_params)
+        log_performance_table(wandb_run, fold_metrics, aggregated)
+        log_summary(wandb_run, aggregated)
+        run_url = wandb_run.url
+        finish_run(wandb_run)
+        print(f"[{experiment_name}] logged to W&B: {run_url or '(offline run, not synced)'}")
+
     return result
 
 
@@ -697,7 +734,7 @@ def _run_hpo(
         gc.collect()
         return mean_score
 
-    sampler = TPESampler(seed=42 + fold)
+    sampler = _make_sampler(cfg, seed=42 + fold)
     study = optuna.create_study(direction="maximize", sampler=sampler)
     study.optimize(objective, n_trials=n_trials)
 

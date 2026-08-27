@@ -64,7 +64,7 @@ _DEFAULT_SPACES: dict[tuple[str, str], dict] = {
         "hidden_dim": [32, 128],
         "n_layers": [1, 4],
         "dropout": [0.0, 0.5],
-        "learning_rate": [1e-4, 1e-2],
+        "learning_rate": [1.0e-4, 1.0e-2],
         "batch_size": [16, 64],
         "epochs": [20, 60],
         "patience": [5, 30],
@@ -73,31 +73,31 @@ _DEFAULT_SPACES: dict[tuple[str, str], dict] = {
         "hidden_dim": [32, 128],
         "n_layers": [1, 4],
         "dropout": [0.0, 0.5],
-        "learning_rate": [1e-4, 1e-2],
+        "learning_rate": [1.0e-4, 1.0e-2],
         "batch_size": [16, 64],
         "epochs": [20, 60],
         "patience": [5, 30],
     },
-    ("lasso_regression", "regression"): {"alpha": [1e-4, 10.0]},
-    ("ridge_regression", "regression"): {"alpha": [1e-4, 10000.0]},
+    ("lasso_regression", "regression"): {"alpha": [1.0e-4, 10.0]},
+    ("ridge_regression", "regression"): {"alpha": [1.0e-4, 10000.0]},
     ("elastic_regression", "regression"): {
-        "alpha": [1e-4, 10.0],
+        "alpha": [1.0e-4, 10.0],
         "l1_ratio": [0.0, 1.0],
     },
     ("logistic_regression", "binary_classification"): {
-        "C": [1e-4, 100.0],
+        "C": [1.0e-4, 100.0],
         "class_weight": [None, "balanced"],
     },
     ("ridge_logistic_regression", "binary_classification"): {
-        "C": [1e-4, 100.0],
+        "C": [1.0e-4, 100.0],
         "class_weight": [None, "balanced"],
     },
     ("lasso_logistic_regression", "binary_classification"): {
-        "C": [1e-4, 100.0],
+        "C": [1.0e-4, 100.0],
         "class_weight": [None, "balanced"],
     },
     ("elastic_logistic_regression", "binary_classification"): {
-        "C": [1e-4, 100.0],
+        "C": [1.0e-4, 100.0],
         "l1_ratio": [0.0, 1.0],
         "class_weight": [None, "balanced"],
     },
@@ -346,7 +346,7 @@ def build_model(model_name: str, params: dict, cfg: dict):
     # ── TabPFN ───────────────────────────────────────────────────────────────
     if model_name == "tabpfn":
         device = cfg.get("model", {}).get("device", "cpu")
-        # shapiq's TabPFNExplainer (src/shap_explain.py) re-conditions the model
+        # shapiq's TabPFNExplainer (src/shap.py) re-conditions the model
         # once per coalition, which is dramatically faster with TabPFN's KV cache
         # engaged; only enable it for experiments that actually opted into the
         # explanations so the normal training path is untouched.

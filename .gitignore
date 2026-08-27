@@ -52,3 +52,6 @@ Thumbs.db
 *.cache
 *.tmp
 .cache/
+
+# Weights & Biases local run data (see wandb: in experiment configs)
+wandb/
