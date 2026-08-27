@@ -726,7 +726,7 @@ def main() -> None:
             print(f"  Random subsample: {n_sample:,}/{n_total:,} rows (rand={rand_frac:g})")
 
         # ── Optional sign-flip of negative labels + their features ────────────
-        if data_cfg.get("invert", False):
+        if data_cfg.get("invert", True):
             neg = (y < 0).values
             y = y.copy()
             y.iloc[neg] *= -1
